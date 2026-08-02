@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Cloned reference repos (audited, not vendored) -- see reports/release_audit.md
+refs/
+
+# Data / artifacts -- never commit embeddings, logits, images, checkpoints.
+# These live on Google Drive, not in git (AGENTS.md §3).
+data/**/*.npy
+data/**/*.npz
+data/**/*.pt
+data/**/*.pth
+data/**/images/
+*.ckpt
+extract_cache/
+
+# Reports: commit the .md/.json findings, ignore heavy intermediate dumps
+reports/**/*.npy
+reports/**/*.npz
+
+# OS / editor
+.DS_Store
+.ipynb_checkpoints/
