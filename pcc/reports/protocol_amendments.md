@@ -205,6 +205,43 @@ if that ever starts passing, the "debug only" justification gets re-examined.
 
 ---
 
+---
+
+## CIFAR-100 Phase-0 outcome under the adopted metric (2026-08-03) — out of regime
+
+| α | global size | temperature | best energy | **class** |
+|---|---|---|---|---|
+| 0.05 | 9.10 | +2.07 [−0.18, +4.31] | −41.6 | **−87.9** [−90.4, −85.3] |
+| 0.1 | 3.57 | +0.06 [+0.01, +0.11] | −47.0 | **−85.8** [−86.6, −85.1] |
+
+Verdict FAIL at both α. The class mechanism needs ~97 of 100 labels to reach
+worst-class coverage ≥ 1−α, versus 3.6–9.1 for a global threshold.
+
+**Diagnosis (measured, not assumed).** The adopted metric behaves correctly where
+it is applicable — validated at +40.89 (structure present) / −2.52 (absent) with
+≥1000 calibration samples per class. CIFAR-100 sits outside that regime, and the
+blow-up is the signature of it: a global threshold needs only a *small* inflation
+to lift its worst class (final size 3.57 at α=0.1), which means **class-difficulty
+heterogeneity in CIFAR-100 is small relative to the estimation noise at ~50
+calibration samples per class**. Per-class thresholds estimated from 50 samples
+are noisy, one badly-estimated class forces a large uniform inflation, and that
+inflation is then paid by all 100 classes.
+
+This is consistent with CIFAR-100 being balanced and curated — classes are roughly
+equally hard, which is precisely why the class-conditional CP literature works on
+long-tailed data. It **cannot** distinguish "no class structure" from "structure
+not estimable at this n", and it is the fourth independent reason CIFAR-100 cannot
+decide Phase 0 (after: α=0.01 infeasible, gate A noise-limited, prevalence
+ablation undefined because balanced).
+
+**No further metric redesign.** Two redesigns have already been made; a third,
+tuned to make CIFAR-100 pass, would be exactly the behaviour §0.3 forbids. The
+metric stands as validated; CIFAR-100 is recorded as out of regime. Phase 0 is
+decided on Pl@ntNet. The notebook now prints each mechanism's achieved size and
+the inflation it required, so this pathology is legible rather than mysterious.
+
+---
+
 ## Status
 
 - Amendment 1: **implemented + tested** (`pcc/eval/decomposition.py:group_quantile`).
