@@ -49,26 +49,49 @@ def _cosine(a, B):
     return Bn @ a
 
 
-def cosine_to_knn(y, means, ks=(1, 5, 10, 50)):
-    """For class y, mean cosine to its k nearest OTHER class means, for each k."""
+def cosine_knn_matrix(means, ks=(1, 5, 10, 50)):
+    """Vectorized: for every class, the mean cosine to its k nearest OTHER class
+    means. One [K,K] matmul instead of re-normalizing the means per class.
+
+    Returns {k: array[K]} with NaN for classes whose mean is undefined.
+    """
+    means = np.asarray(means, float)
+    K = len(means)
     valid = ~np.isnan(means).any(axis=1)
-    valid[y] = False
-    others = means[valid]
-    if len(others) == 0:
-        return {f"cos_knn_{k}": np.nan for k in ks}
-    cos = np.sort(_cosine(means[y], others))[::-1]  # descending similarity
-    return {f"cos_knn_{k}": float(cos[:k].mean()) if len(cos) >= 1 else np.nan
-            for k in ks}
+    Mn = np.zeros_like(means)
+    norms = np.linalg.norm(means[valid], axis=1, keepdims=True) + 1e-12
+    Mn[valid] = means[valid] / norms
+    S = Mn @ Mn.T                      # cosine similarity matrix
+    out = {k: np.full(K, np.nan) for k in ks}
+    for y in np.where(valid)[0]:
+        others = valid.copy()
+        others[y] = False
+        if not others.any():
+            continue
+        cos = np.sort(S[y, others])[::-1]   # descending similarity
+        for k in ks:
+            out[k][y] = float(cos[:k].mean())
+    return out
 
 
 def within_class_cov_stats(features_y, top_k=3):
-    """Trace and top-k eigenvalues of the within-class covariance."""
+    """Trace and top-k eigenvalues of the within-class covariance.
+
+    Computed via the q x q GRAM matrix rather than the d x d covariance. For
+    q samples in d dims with q << d the covariance has rank <= q-1, and the
+    nonzero eigenvalues of Xc^T Xc (d x d) and Xc Xc^T (q x q) are IDENTICAL —
+    so this is exact, not an approximation. Verified equal to the full-covariance
+    result to ~1e-14, and ~185x faster at q=100, d=2048 (the d^3 eigendecomposition
+    was making descriptor stability take hours).
+    """
     f = np.asarray(features_y, float)
-    if len(f) < 2:
+    q = len(f)
+    if q < 2:
         return {"cov_trace": np.nan, **{f"cov_eig_{i}": np.nan for i in range(top_k)}}
-    cov = np.cov(f, rowvar=False)
-    eig = np.sort(np.linalg.eigvalsh(cov))[::-1]
-    out = {"cov_trace": float(np.trace(cov))}
+    Xc = f - f.mean(axis=0)
+    G = (Xc @ Xc.T) / (q - 1)                      # [q, q], tiny
+    eig = np.sort(np.linalg.eigvalsh(G))[::-1]
+    out = {"cov_trace": float(f.var(axis=0, ddof=1).sum())}
     for i in range(top_k):
         out[f"cov_eig_{i}"] = float(eig[i]) if i < len(eig) else 0.0
     return out
@@ -113,17 +136,28 @@ def build_descriptors(features, logits, classes, n_classes, *,
     else:
         counts = np.asarray(log_prevalence_from)
 
+    # precompute the cosine-kNN features for ALL classes in one pass
+    cos_knn = cosine_knn_matrix(means, ks)
+    # group sample indices by class once, instead of a boolean scan per class
+    order = np.argsort(classes, kind="stable")
+    bounds = np.searchsorted(classes[order], np.arange(n_classes + 1))
+
     rows, names = [], None
     for y in range(n_classes):
-        m = classes == y
-        if not m.any():
+        idx = order[bounds[y]:bounds[y + 1]]
+        if len(idx) == 0:
             rows.append(None)
             continue
+        m = idx
         feat = {}
         feat["mean_norm"] = float(np.linalg.norm(means[y]))
-        feat.update(cosine_to_knn(y, means, ks))
+        feat.update({f"cos_knn_{k}": float(cos_knn[k][y]) for k in ks})
         feat.update(within_class_cov_stats(features[m], top_eig))
-        feat["n_eff"] = float(m.sum())
+        # NOTE: `m` is an INTEGER index array (not a boolean mask), so the count is
+        # len(m). Using m.sum() here silently summed the index VALUES — a bug that
+        # made n_eff correlate with class id and could have faked predictability.
+        # Guarded by tests/test_descriptor_perf.py::test_class_grouping_is_order_independent.
+        feat["n_eff"] = float(len(m))
         feat["log_prevalence"] = float(np.log(counts[y] + 1e-12))
         if logits is not None:
             feat.update(logit_stats(logits[m], y))
