@@ -69,6 +69,58 @@ def test_energy_more_bins_is_not_free_gap():
         "more energy bins closed more gap — check for calibration leakage"
 
 
+def _realistic(n_per_class=100, K=100, boost=3.5, seed=0):
+    """The regime that actually broke: HIGH accuracy (~0.75-0.85) and only ~100
+    samples/class, i.e. ~50 calibration samples/class after the split. The
+    original tests used 400/class with a weak model, which is why they missed it.
+    """
+    rng = np.random.default_rng(seed)
+    n = n_per_class * K
+    labels = np.repeat(np.arange(K), n_per_class)
+    shift = rng.normal(0, 1.2, K)[labels]
+    logits = rng.normal(size=(n, K))
+    logits[np.arange(n), labels] += boost + shift
+    idx = rng.permutation(n)
+    return logits, labels, idx[: n // 2], idx[n // 2:]
+
+
+def test_class_offset_positive_at_realistic_accuracy_and_sample_count():
+    """REGRESSION for the level-mismatch bug (reports/protocol_amendments.md).
+
+    With class structure present, the per-class offset must close a POSITIVE gap.
+    Using the finite-sample `conformal` quantile makes it strongly NEGATIVE
+    (-5.98 on this fixture; -5.6 on real CIFAR-100) because a 50-sample class group
+    targets the ~98th percentile while the pooled global group targets the ~95th.
+    """
+    logits, labels, cal, ev = _realistic()
+    S = 1 - dc.temperature_softmax(logits, 1.0)
+    emp = dc.gap_from_per_class_offset(S, labels, 100, 0.05, cal, ev,
+                                       estimator="empirical")
+    assert emp["gap_closed"] > 0, (
+        f"per-class gap {emp['gap_closed']:+.3f} is not positive even with the "
+        f"level-matched estimator and real class structure present")
+
+    con = dc.gap_from_per_class_offset(S, labels, 100, 0.05, cal, ev,
+                                       estimator="conformal")
+    assert con["gap_closed"] < emp["gap_closed"], (
+        "the conformal estimator should be MORE conservative here; if this fails, "
+        "group_quantile no longer distinguishes the two levels")
+
+
+def test_group_quantile_levels_differ_with_n():
+    """The mechanism itself: conformal level depends on n, empirical does not."""
+    rng = np.random.default_rng(0)
+    big = rng.beta(1.2, 8.0, 5000)
+    small = rng.beta(1.2, 8.0, 50)
+    # empirical targets the same percentile regardless of n
+    e_big = dc.group_quantile(big, 0.05, "empirical")
+    e_small = dc.group_quantile(small, 0.05, "empirical")
+    assert abs(e_big - e_small) < 0.15, "empirical quantiles should track each other"
+    # conformal on the small group is pushed to a higher percentile
+    c_small = dc.group_quantile(small, 0.05, "conformal")
+    assert c_small >= e_small, "conformal at n=50 must be >= the plain 1-alpha quantile"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
