@@ -40,6 +40,94 @@ def delta_y(cal_scores_true, class_of_sample, n_classes, alpha):
     return delta
 
 
+def delta_y_matched_n(cal_scores_true, class_of_sample, n_classes, alpha, *,
+                      n_cal, seed=42, estimator="conformal"):
+    """δ_y estimated from a MATCHED number of calibration samples per class
+    (Amendment 2, reports/protocol_amendments.md).
+
+    WHY: the quantile estimator's bias depends on the group size n, and n_y ∝
+    prevalence, so δ_y correlates MECHANICALLY with prevalence even when no class
+    structure exists. Measured on a control where every class had an identical
+    score distribution (true δ_y = 0 for all):
+
+        corr(δ_y, log n_y) = -0.287 (conformal) / +0.227 (empirical)   [artefact]
+        matched n_cal = 20                        -> +0.016             [removed]
+
+    This matters because §6.3 gate C asks whether geometry beats log-prevalence,
+    and §6.5 stops the project if prevalence explains most of δ_y. A spurious
+    prevalence↔δ_y link would therefore kill the project for an estimator artefact.
+
+    Classes with fewer than `n_cal` samples are returned as NaN — report how many
+    were dropped, since dropping them is itself prevalence-linked selection.
+    Returns (delta [n_classes], kept_mask [n_classes]).
+    """
+    from pcc.eval.decomposition import group_quantile
+
+    s = np.asarray(cal_scores_true, float)
+    c = np.asarray(class_of_sample)
+    rng = np.random.default_rng(seed)
+
+    kept = np.zeros(n_classes, dtype=bool)
+    picks = []
+    for y in range(n_classes):
+        idx = np.where(c == y)[0]
+        if len(idx) >= n_cal:
+            picks.append(rng.choice(idx, n_cal, replace=False))
+            kept[y] = True
+    if not picks:
+        return np.full(n_classes, np.nan), kept
+    pool = np.concatenate(picks)
+    q_global = group_quantile(s[pool], alpha, estimator)
+
+    delta = np.full(n_classes, np.nan)
+    for y, sel in zip(np.where(kept)[0], picks):
+        qy = group_quantile(s[sel], alpha, estimator)
+        delta[y] = qy - q_global
+    return delta, kept
+
+
+def prevalence_null(cal_scores_true, class_of_sample, n_classes, alpha, *,
+                    n_cal, n_reps=50, seed=42, estimator="conformal"):
+    """MANDATORY null control for gate C (Amendment 2).
+
+    Destroys any real class structure while PRESERVING each class's sample count,
+    by permuting the class labels of the calibration scores. Returns the
+    distribution of corr(δ_y, log n_y) under that null, so gate-C conclusions can
+    be judged against the null rather than against zero.
+
+    A prevalence effect that does not exceed this null is an estimator artefact.
+    """
+    s = np.asarray(cal_scores_true, float)
+    c = np.asarray(class_of_sample)
+    counts = np.bincount(c, minlength=n_classes)
+    rng = np.random.default_rng(seed)
+
+    corrs = []
+    for r in range(n_reps):
+        c_perm = rng.permutation(c)          # same class sizes, structure destroyed
+        d, kept = delta_y_matched_n(s, c_perm, n_classes, alpha, n_cal=n_cal,
+                                    seed=seed + 1 + r, estimator=estimator)
+        ok = kept & np.isfinite(d) & (counts > 0)
+        if ok.sum() > 3:
+            corrs.append(_pearson(d[ok], np.log(counts[ok])))
+    corrs = np.array([x for x in corrs if not np.isnan(x)], float)
+    if len(corrs) == 0:
+        # Happens when class counts have no variance (a BALANCED dataset such as
+        # CIFAR-100): log n_y is constant, so corr(δ_y, log n_y) is undefined and
+        # the prevalence ablation cannot be tested at all. Keys are kept identical
+        # so callers never hit a KeyError on this path.
+        undefined = bool(np.ptp(counts[counts > 0]) == 0) if (counts > 0).any() else True
+        return {"null_mean": np.nan, "null_sd": np.nan, "null_abs_p95": np.nan,
+                "n_reps": 0,
+                "undefined_reason": ("class counts have no variance (balanced dataset) "
+                                     "-> prevalence ablation undefined"
+                                     if undefined else
+                                     "too few classes retained at this n_cal")}
+    return {"null_mean": float(corrs.mean()), "null_sd": float(corrs.std(ddof=1)),
+            "null_abs_p95": float(np.percentile(np.abs(corrs), 95)),
+            "n_reps": int(len(corrs)), "undefined_reason": None}
+
+
 def _pearson(a, b):
     a = np.asarray(a, float)
     b = np.asarray(b, float)

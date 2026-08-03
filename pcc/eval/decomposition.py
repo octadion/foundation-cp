@@ -190,6 +190,142 @@ def gap_from_energy_reweighting(logits, score_matrix, labels, alpha,
             "n_bins": n_bins, "n_free_params": n_bins, "estimator": estimator}
 
 
+def _sets_from_thresholds(score_matrix, thresholds, inflate=0.0):
+    """thresholds: [K] (per candidate class) or [n] (per sample). Adds `inflate`."""
+    t = np.asarray(thresholds, float) + inflate
+    if t.ndim == 0:
+        return score_matrix <= t
+    if len(t) == score_matrix.shape[1]:
+        return score_matrix <= t[None, :]
+    if len(t) == score_matrix.shape[0]:
+        return score_matrix <= t[:, None]
+    raise ValueError(f"threshold length {len(t)} matches neither classes nor samples")
+
+
+def min_size_at_worst_class_coverage(score_matrix, labels, n_classes, thresholds,
+                                     target, *, tol=1e-4, max_inflate=10.0):
+    """Smallest average set size achieving worst-class coverage >= `target`, by
+    uniformly inflating `thresholds`.
+
+    This is the well-posed efficiency measure for a CLASS-level mechanism
+    (Amendment 3, reports/protocol_amendments.md): average set size at nominal
+    MARGINAL coverage cannot reward a class-indexed correction, because marginal
+    split-CP is already optimal for marginal coverage. Here every mechanism is
+    held to the SAME class-conditional requirement and we ask what it costs.
+
+    Returns (avg_set_size, achieved_worst_coverage, inflation). If the target is
+    unreachable within `max_inflate`, returns the max-inflation result.
+    """
+    from pcc.eval.metrics import per_class_coverage
+
+    def worst(c):
+        sets = _sets_from_thresholds(score_matrix, thresholds, c)
+        cov = per_class_coverage(sets, labels, n_classes)
+        return float(np.nanmin(cov)), sets
+
+    lo = 0.0
+    w0, _ = worst(0.0)
+    if w0 >= target:
+        hi = 0.0
+    else:
+        hi = 0.5
+        while hi <= max_inflate:
+            w, _ = worst(hi)
+            if w >= target:
+                break
+            lo, hi = hi, hi * 2
+        hi = min(hi, max_inflate)
+        while hi - lo > tol:
+            mid = (lo + hi) / 2
+            w, _ = worst(mid)
+            if w >= target:
+                hi = mid
+            else:
+                lo = mid
+    w, sets = worst(hi)
+    return float(sets.sum(axis=1).mean()), w, float(hi)
+
+
+def phase0_cc_decomposition(logits, labels, n_classes, alpha, cal_idx, eval_idx, *,
+                            bin_grid=(2, 10, 50), estimator="empirical",
+                            target=None):
+    """ADOPTED §5 measurement (Amendment 3): average set size required to reach
+    worst-class coverage >= 1-alpha, for each mechanism, with every per-group
+    correction estimated OUT OF SAMPLE (on cal, evaluated on eval).
+
+    Out-of-sample estimation is essential: in-sample per-class thresholds win even
+    when no class structure exists (+8.77 measured), because per-class flexibility
+    absorbs noise. Verified discrimination (abundant data): structure present
+    +44.83, structure absent -0.32.
+
+    Returns a dict mechanism -> {avg_set_size, worst_coverage, inflation}, plus
+    `gap_vs_global` per mechanism (global_size - mechanism_size; POSITIVE = the
+    mechanism is cheaper). §5 passes if `class` has the largest gap with
+    non-overlapping CIs.
+    """
+    target = (1 - alpha) if target is None else target
+    S = thr_scores_from_softmax(temperature_softmax(logits, 1.0))
+    cal_true = S[cal_idx, labels[cal_idx]]
+    cal_lab = labels[cal_idx]
+    q_global = group_quantile(cal_true, alpha, estimator)
+    Se, le = S[eval_idx], labels[eval_idx]
+
+    out = {}
+
+    def record(name, thresholds):
+        sz, w, inf = min_size_at_worst_class_coverage(Se, le, n_classes,
+                                                     thresholds, target)
+        out[name] = {"avg_set_size": sz, "worst_coverage": w, "inflation": inf}
+
+    record("global", np.full(n_classes, q_global))
+
+    # (1) temperature: pick T on CAL by marginal efficiency, then hold to the same
+    # class-conditional requirement on EVAL
+    best_T, best_size = 1.0, np.inf
+    for T in np.linspace(0.5, 3.0, 26):
+        St = thr_scores_from_softmax(temperature_softmax(logits, T))
+        qt = group_quantile(St[cal_idx, cal_lab], alpha, estimator)
+        s = float((St[cal_idx] <= qt).sum(axis=1).mean())
+        if s < best_size:
+            best_T, best_size = T, s
+    St = thr_scores_from_softmax(temperature_softmax(logits, best_T))
+    qt = group_quantile(St[cal_idx, cal_lab], alpha, estimator)
+    sz, w, inf = min_size_at_worst_class_coverage(St[eval_idx], le, n_classes,
+                                                 np.full(n_classes, qt), target)
+    out["temperature"] = {"avg_set_size": sz, "worst_coverage": w,
+                          "inflation": inf, "best_T": best_T}
+
+    # (2) energy: per-bin offsets estimated on CAL, applied per EVAL sample
+    E = free_energy(logits)
+    for b in bin_grid:
+        edges = np.quantile(E[cal_idx], np.linspace(0, 1, b + 1))
+        edges[0], edges[-1] = -np.inf, np.inf
+        bin_of = np.clip(np.digitize(E, edges) - 1, 0, b - 1)
+        thr_b = np.full(b, q_global)
+        for j in range(b):
+            m = bin_of[cal_idx] == j
+            if m.any():
+                qj = group_quantile(cal_true[m], alpha, estimator)
+                if np.isfinite(qj):
+                    thr_b[j] = qj
+        record(f"energy_b{b}", thr_b[bin_of[eval_idx]])   # per-sample thresholds
+
+    # (3) per-class offsets estimated on CAL (OUT OF SAMPLE)
+    thr_c = np.full(n_classes, q_global)
+    for y in range(n_classes):
+        m = cal_lab == y
+        if m.any():
+            qy = group_quantile(cal_true[m], alpha, estimator)
+            if np.isfinite(qy):
+                thr_c[y] = qy
+    record("class", thr_c)
+
+    g = out["global"]["avg_set_size"]
+    for k in out:
+        out[k]["gap_vs_global"] = g - out[k]["avg_set_size"]
+    return out
+
+
 def phase0_energy_bin_sweep(logits, score_matrix, labels, alpha, cal_idx, eval_idx,
                             bin_grid=(2, 5, 10, 20, 50, 100), estimator="empirical"):
     """Gap closed by component (2) as a function of its free-parameter count.

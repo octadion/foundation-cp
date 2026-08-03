@@ -121,6 +121,65 @@ def test_group_quantile_levels_differ_with_n():
     assert c_small >= e_small, "conformal at n=50 must be >= the plain 1-alpha quantile"
 
 
+def _cc(class_structure, n_per_class, K=100, boost=3.5, seed=0):
+    rng = np.random.default_rng(seed)
+    n = n_per_class * K
+    labels = np.repeat(np.arange(K), n_per_class)
+    shift = (rng.normal(0, 1.2, K)[labels] if class_structure
+             else rng.normal(0, 1.2, n))
+    logits = rng.normal(size=(n, K))
+    logits[np.arange(n), labels] += boost + shift
+    idx = rng.permutation(n)
+    return dc.phase0_cc_decomposition(logits, labels, K, 0.1,
+                                      idx[: n // 2], idx[n // 2:],
+                                      bin_grid=(2, 10, 50))
+
+
+def test_cc_metric_class_dominates_with_structure_and_abundant_data():
+    """ADOPTED §5 metric (Amendment 3): with real class structure AND enough
+    calibration data, the class-indexed correction must be the cheapest way to
+    reach worst-class coverage >= 1-alpha."""
+    r = _cc(True, 2000)
+    rivals = max(v["gap_vs_global"] for k, v in r.items()
+                 if k not in ("class", "global"))
+    assert r["class"]["gap_vs_global"] > rivals, (
+        f"class gap {r['class']['gap_vs_global']:+.2f} did not beat best rival {rivals:+.2f}")
+
+
+def test_cc_metric_negative_control_no_class_structure():
+    """NEGATIVE CONTROL — without class structure the class mechanism must NOT be
+    the cheapest. This is what the original marginal-coverage metric could not do
+    in reverse (it could never reward the class mechanism at all)."""
+    r = _cc(False, 2000)
+    rivals = max(v["gap_vs_global"] for k, v in r.items()
+                 if k not in ("class", "global"))
+    assert r["class"]["gap_vs_global"] <= rivals, (
+        f"class gap {r['class']['gap_vs_global']:+.2f} beat rivals {rivals:+.2f} "
+        f"with NO class structure — metric is biased toward its own hypothesis")
+
+
+def test_cc_metric_cannot_resolve_at_cifar100_sample_count():
+    """Documents WHY CIFAR-100 cannot answer Phase 0: at ~50 calibration samples
+    per class, even strong real structure does not make the class mechanism win."""
+    r = _cc(True, 100)      # 100/class -> ~50 calibration samples/class
+    rivals = max(v["gap_vs_global"] for k, v in r.items()
+                 if k not in ("class", "global"))
+    assert r["class"]["gap_vs_global"] < rivals, (
+        "class mechanism unexpectedly won at 50 cal samples/class; if this starts "
+        "passing, re-examine the CIFAR-100 'debug only' justification")
+
+
+def test_min_size_reaches_target_coverage():
+    rng = np.random.default_rng(3)
+    n, K = 4000, 50
+    labels = rng.integers(0, K, n)
+    S = rng.random((n, K))
+    sz, w, inf = dc.min_size_at_worst_class_coverage(S, labels, K,
+                                                    np.full(K, 0.5), 0.9)
+    assert w >= 0.9 - 1e-9, f"worst coverage {w:.4f} below target"
+    assert 0 <= sz <= K
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

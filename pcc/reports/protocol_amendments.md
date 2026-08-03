@@ -129,13 +129,90 @@ Pl@ntNet, made before gate C runs and recorded here.
 
 ---
 
+---
+
+## Amendment 3 — ADOPTED 2026-08-03 (human-approved): the §5 gap metric was ill-posed
+
+**Status: APPROVED and implemented.** The human reviewed the evidence below and chose to adopt
+the corrected metric. This is written as evidence, not as a change.
+§0.3 forbids changing a metric after seeing a negative result, and this proposal
+follows a FAIL — so it must be judged explicitly rather than adopted quietly.
+
+### What the second Phase-0 run showed
+
+After Amendment 1 the per-class offset moved from −5.615 to **−0.066** (α=0.05)
+and **−0.097** (α=0.1) — the level artefact was removed, but the gap is still
+slightly negative, and **every** mechanism is ≤ ~0 (temperature +0.050/+0.014,
+energy −0.38…−1.12). Verdict: FAIL at both α, on both estimators.
+
+### Why the metric, not the hypothesis, is the likely problem
+
+The metric as implemented is *avg set size at nominal marginal coverage*. But
+marginal split-CP is already the most efficient way to obtain **marginal**
+coverage; adding a class-conditional constraint can only spend size. So a
+class-indexed mechanism **cannot** win on this metric regardless of whether class
+structure exists. A test that cannot return a positive is not a test.
+
+Verified — abundant data, strong real class structure, out-of-sample per-class
+thresholds, avg set size at matched **class-conditional** coverage
+(worst-class ≥ 1−α):
+
+| cal samples/class | structure PRESENT | structure ABSENT |
+|---|---|---|
+| 50 (CIFAR-100's regime) | +3.17 | −60.41 |
+| 200 | +2.79 | −22.03 |
+| 1000 | **+40.89** | −2.55 |
+| 4000 | **+44.83** | −0.32 |
+
+This metric discriminates cleanly **and has a working negative control** (the gap
+goes negative without structure, converging to 0 as data grows). It is also the
+objective `AGENTS.md` §9 actually cares about (CovGap, worst-class coverage).
+
+Two rejected alternatives, for the record:
+- *avg size at matched class-conditional coverage, in-sample*: wins by +8.77 even
+  with NO class structure (per-class flexibility absorbs noise). Biased.
+- *threshold-shuffling null*: too destructive (null 97.77 / 69.71) — it models
+  "actively wrong structure", not "no structure". Invalid as a null.
+
+Only **out-of-sample** per-class estimation separates real structure from noise
+absorption.
+
+### The other conclusion this forces
+
+At 50 calibration samples/class — CIFAR-100's regime — even strong real structure
+yields only +3.17 versus +40.89 at 1000/class. **CIFAR-100 structurally cannot
+answer Phase 0.** This is consistent with the two limits already recorded
+(α=0.01 infeasible; gate A noise-limited at 25/class). It also entangles Phase 0
+with Phase 1: distinguishing "no class structure" from "structure not estimable at
+this n" *is* what gate A (split-half reliability of δ_y) measures. So §5 and §6.2
+cannot be interpreted independently, and §5 should be run on classes that actually
+have abundant calibration data — which §5 itself demands ("di-fit pada data
+berlimpah, bukan pada budget realistis").
+
+### The decision required
+
+1. **Adopt the corrected metric** (avg set size at matched class-conditional
+   coverage, out-of-sample per-class estimation), re-run Phase 0 on Pl@ntNet head
+   classes where data is abundant; OR
+2. **Keep the original metric** and record Phase 0 as FAIL, i.e. stop the project
+   per §5.
+
+**Decision: (1) adopted.** Implemented as
+`decomposition.phase0_cc_decomposition` / `min_size_at_worst_class_coverage`.
+Guarded by `tests/test_phase0_decomposition.py`, including a negative control and a
+test asserting the metric CANNOT resolve at CIFAR-100's ~50 cal samples/class — so
+if that ever starts passing, the "debug only" justification gets re-examined.
+
+---
+
 ## Status
 
-- Amendment 1: **implemented** (`pcc/eval/decomposition.py`), tested, Phase-0
-  notebook to be re-run reporting both estimators.
-- Amendment 2: **specified, not yet implemented** — Phase 1 is not built yet. It
-  must be in place before gate C is computed on Pl@ntNet, and `n_cal` needs a
-  human decision.
+- Amendment 1: **implemented + tested** (`pcc/eval/decomposition.py:group_quantile`).
+- Amendment 2: **implemented + tested** (`targets/delta.py:delta_y_matched_n`,
+  `:prevalence_null`), wired into `notebooks/04_phase1_gate.ipynb`. `n_cal` still
+  needs a **human decision for Pl@ntNet** (the head/tail trade-off).
+- Amendment 3: **adopted + implemented + tested**
+  (`decomposition.phase0_cc_decomposition`), wired into `notebooks/03`.
 - `δ_y` as defined in §6.1 (conformal quantiles) is retained as the **deployment**
   target definition; these amendments concern how it is **measured** for the
   structure and predictability questions.
