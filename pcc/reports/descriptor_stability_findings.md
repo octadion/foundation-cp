@@ -59,6 +59,72 @@ remain "rank distribution" features per §6.3. Rationale: feeding a near-noise
 descriptor into the gate-B/C ridge depresses R² and makes a negative Phase-1
 result ambiguous — the exact failure §3.3 exists to prevent.
 
+## Re-run after the rank fix (2026-07-25, same embeddings)
+
+| q | aggregate before | aggregate after |
+|---|---|---|
+| 10 | 0.669 | 0.659 |
+| 25 | 0.780 | 0.786 |
+| 50 | 0.852 | 0.868 |
+| 100 | 0.903 | **0.925** |
+
+All geometry features reproduced **bit-identically** (mean_norm 0.708/0.859/0.918/0.959,
+cos_knn_1 0.838/0.916/0.958/0.977, …), independently confirming the Gram-matrix
+optimization is exact.
+
+The rank fix worked per-feature (`frac_top1` 0.866 and `mean_log1p_rank` 0.797 at
+q=100, vs `true_rank` 0.468) but the **aggregate at q=10 slightly dropped**
+(0.669 → 0.659), because one very-bad feature was replaced by *two*
+moderately-bad ones — the count of weak features increased. Recorded so the
+aggregate is not misread as a quality regression.
+
+### Feature stability ranking at q=100
+
+Stable (≥0.90): cos_knn_5 0.983, cos_knn_10 0.981, cos_knn_50 0.979,
+cos_knn_1 0.977, cov_trace 0.975, logit_margin 0.973, mean_norm 0.959,
+softmax_entropy 0.938, cov_eig_0 0.923.
+
+**Weak (<0.90): frac_top1 0.866, cov_eig_2 0.848, cov_eig_1 0.831,
+mean_log1p_rank 0.797.**
+
+## PRE-REGISTERED feature-set policy for Phase 1 (fixed before gate B/C runs)
+
+Two descriptor sets, **both always reported**:
+
+- **PRIMARY — `stable`**: features with stability ≥0.90 at the chosen quota.
+- **SECONDARY — `full`**: every feature, as a sensitivity check.
+
+Why this is not cherry-picking: the selection criterion (cross-draw stability) is
+computed **without ever touching δ_y**, so it cannot bias the outcome — unlike
+selecting features by their R² against the target. The primary set is named in
+advance and both are reported regardless of which looks better.
+
+## Two ceilings, not one (analysis-correctness note)
+
+§6.3 says to normalize held-out R² by the **target** reliability ceiling (gate A).
+That is necessary but **not sufficient**: the descriptor has its own reliability
+ceiling. With descriptor reliability `r_φ` and target reliability `r_δ`, the
+attainable R² is bounded roughly by `r_φ · r_δ`, so even a perfect model cannot
+reach normalized R² = 1 when `r_φ < 1`. At quota 100, `r_φ ≈ 0.925`.
+
+**Therefore every gate-B report must state both ceilings**, and "normalized R²"
+must be labelled with which ceiling it was divided by. Dividing by `r_δ` alone
+and expecting 1.0 would understate the model and could turn a correct result into
+a false "B fails".
+
+## Quota decision for CIFAR-100 Phase 1 — no re-extraction needed
+
+The stability study needs `2q` images per class (disjoint halves), which is why
+q=200 was skipped at 200/class. But the **descriptor actually used in Phase 1 does
+not need disjoint halves** — it is built from *all* available images per class.
+With 200/class extracted, the Phase-1 descriptor is effectively at q=200, i.e.
+*better* than the q=100 measurement that cleared the threshold.
+
+So: **use all 200/class for CIFAR-100 Phase 1; do not re-extract at 400.** The
+400/class extraction would only refine the *diagnostic* curve, which is not needed
+for the debug run. (`00a` still defaults to 400 for anyone who wants the plateau
+measured later.)
+
 ## Open issue 1 — the curve has NOT plateaued
 
 0.90 is crossed only at q=100, which is also the **largest q testable** here

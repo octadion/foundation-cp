@@ -87,13 +87,70 @@ def gap_from_per_class_offset(score_matrix, labels, n_classes, alpha,
             "coverage": coverage(sets, labels[eval_idx])}
 
 
-def gap_from_energy_reweighting(*args, **kwargs):
-    """Component (2): per-sample energy reweighting. Left as a documented
-    interface: the exact reweighting scheme (how free_energy modulates the score
-    or the calibration weighting) must be pinned down in the Phase-0 design and
-    reproduced, not guessed — a wrong scheme would make the §5 comparison
-    meaningless. `free_energy()` above provides the energy input.
+def gap_from_energy_reweighting(logits, score_matrix, labels, alpha,
+                                cal_idx, eval_idx, *, n_bins=10):
+    """Component (2): per-sample correction indexed by free energy.
+
+    DESIGN DECISION (recorded 2026-07-25). §5 specifies only "pembobotan
+    per-sampel berbasis energi (free energy dari ruang pre-softmax)". The
+    instantiation chosen makes all three components **structurally identical** —
+    the same conformal offset estimator, fit on abundant data — differing ONLY in
+    what indexes the correction:
+
+        (1) temperature      : 1 global scalar
+        (2) energy (this fn) : offset per ENERGY BIN, E(x) = -logsumexp(logits)
+        (3) class offset     : offset per CLASS (δ_y)
+
+    So (2) is "correction indexed by per-sample difficulty" and (3) is
+    "correction indexed by class". If (3) closes a substantially larger gap with
+    non-overlapping CIs, that is evidence the structure genuinely lives at the
+    CLASS level rather than being a relabelling of per-sample difficulty — which
+    is exactly the §5 hypothesis. Any other scheme is a fair alternative; this one
+    is chosen because it makes the comparison apples-to-apples.
+
+    Bin edges come from CALIBRATION energies only (no eval leakage). Each eval
+    sample gets its own threshold `q̂_global + offset[bin(E(x))]` — a per-sample
+    threshold, unlike the per-class threshold of component (3).
+
+    NOTE on parameter count: n_bins vs K classes are not equal, so sweep n_bins
+    and report the curve — a component with more free parameters can close more gap
+    trivially. `phase0_energy_bin_sweep` does this.
     """
-    raise NotImplementedError(
-        "energy reweighting scheme: specify in Phase-0 design (§5 component 2) "
-        "before implementing; do not guess.")
+    E = free_energy(logits)
+    cal_true = score_matrix[cal_idx, labels[cal_idx]]
+    q_global = conformal_quantile(cal_true, alpha)
+
+    edges = np.quantile(E[cal_idx], np.linspace(0, 1, n_bins + 1))
+    edges[0], edges[-1] = -np.inf, np.inf
+    bin_of = np.clip(np.digitize(E, edges) - 1, 0, n_bins - 1)
+
+    offsets = np.zeros(n_bins)
+    cal_bins = bin_of[cal_idx]
+    for b in range(n_bins):
+        m = cal_bins == b
+        if m.any():
+            qb = conformal_quantile(cal_true[m], alpha)
+            offsets[b] = 0.0 if not np.isfinite(qb) else qb - q_global
+
+    base = efficiency(score_matrix, labels, alpha, cal_idx, eval_idx,
+                      threshold=q_global)
+    thr = q_global + offsets[bin_of[eval_idx]]          # per-SAMPLE threshold
+    sets = score_matrix[eval_idx] <= thr[:, None]
+    size = float(sets.sum(axis=1).mean())
+    return {"baseline_size": base["avg_set_size"], "energy_size": size,
+            "gap_closed": base["avg_set_size"] - size,
+            "coverage": coverage(sets, labels[eval_idx]),
+            "n_bins": n_bins, "n_free_params": n_bins}
+
+
+def phase0_energy_bin_sweep(logits, score_matrix, labels, alpha, cal_idx, eval_idx,
+                            bin_grid=(2, 5, 10, 20, 50, 100)):
+    """Gap closed by component (2) as a function of its free-parameter count.
+
+    Needed for a fair §5 comparison: component (3) has K free parameters, so the
+    energy component must be shown across a comparable range rather than at one
+    arbitrary bin count.
+    """
+    return {b: gap_from_energy_reweighting(logits, score_matrix, labels, alpha,
+                                           cal_idx, eval_idx, n_bins=b)
+            for b in bin_grid}
