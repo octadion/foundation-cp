@@ -98,11 +98,32 @@ def within_class_cov_stats(features_y, top_k=3):
 
 
 def logit_stats(logits_y, y):
-    """Per-class logit statistics: mean top-1 margin, entropy of mean softmax,
-    mean rank of the true class (0 = top)."""
+    """Per-class logit statistics: mean top-1 margin, entropy of mean softmax, and
+    the rank distribution of the true class (§6.3 "distribusi rank").
+
+    RANK STATISTIC CHANGED 2026-07-25 (measured, not a guess). The raw mean rank
+    (`true_rank`) was the LEAST STABLE descriptor on real CIFAR-100 embeddings:
+    split-half correlation 0.070 / 0.166 / 0.348 / 0.468 at q = 10/25/50/100 —
+    still <0.5 at the largest testable quota, i.e. essentially noise. Cause: at
+    ~83% accuracy most samples have rank 0, so the mean is dominated by a few
+    long-tail misranked samples. Simulation with realistic per-class difficulty
+    variation (corr across 100 classes):
+
+        q      mean_rank   mean_log1p_rank   frac_top1
+        10       0.367          0.505          0.556
+        25       0.584          0.710          0.751
+        50       0.751          0.842          0.868
+       100       0.843          0.907          0.925
+
+    So the rank distribution is now summarized by two ROBUST statistics instead of
+    the outlier-dominated mean. Both are still "rank distribution" features per
+    §6.3; feeding a near-noise descriptor into the gate-B/C ridge would depress R²
+    and make a negative Phase-1 result ambiguous (§3.3).
+    """
     L = np.asarray(logits_y, float)
     if len(L) == 0:
-        return {"logit_margin": np.nan, "softmax_entropy": np.nan, "true_rank": np.nan}
+        return {"logit_margin": np.nan, "softmax_entropy": np.nan,
+                "frac_top1": np.nan, "mean_log1p_rank": np.nan}
     part = np.partition(L, -2, axis=1)
     margin = (part[:, -1] - part[:, -2]).mean()
     e = np.exp(L - L.max(axis=1, keepdims=True))
@@ -110,7 +131,8 @@ def logit_stats(logits_y, y):
     entropy = float((-(p * np.log(p + 1e-12)).sum(axis=1)).mean())
     ranks = (L > L[:, [y]]).sum(axis=1)  # how many classes beat the true class
     return {"logit_margin": float(margin), "softmax_entropy": entropy,
-            "true_rank": float(ranks.mean())}
+            "frac_top1": float((ranks == 0).mean()),
+            "mean_log1p_rank": float(np.log1p(ranks).mean())}
 
 
 def build_descriptors(features, logits, classes, n_classes, *,
