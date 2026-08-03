@@ -104,3 +104,39 @@ as `fallback_policy.md`).
 
 Each `(dataset × backbone)` has its own gate/consistency report; extraction for a
 pair is blocked until *its* report says PASS.
+
+### CIFAR-100 gate result (run 2026-07-25) — PASS
+
+`reports/00a_cifar100_selfconsistency.json`. Self-trained ResNet-50, 15 epochs,
+Adam lr 1e-4. `softmax_recompute_maxdiff = 0.0`; `penultimate_to_logits_maxdiff =
+3.62e-06` (float32 embedding → float64 reconstruction rounding, well inside the
+1e-3 tolerance) → **the penultimate hook captures the correct tensor**. Test-set
+accuracy 0.826.
+
+**Defect found and fixed (recorded, not hidden):** in the first run, the
+validation loader subset `train_full`, which carries `RandomResizedCrop(224)` +
+flip, so per-epoch val accuracy was measured **under training augmentation**. It
+read ~0.688 while true (clean-transform) test accuracy was 0.826, and best-epoch
+selection ran on that augmented, noisy metric. Fixed in `00a` cell 4 (val now
+uses a clean-transform dataset instance). **Not retrained**: 0.826 is more than
+adequate for a debug-only backbone, and CIFAR-100 is never the gate verdict.
+
+### α feasibility limit on CIFAR-100 (PRE-REGISTERED before Phase 1)
+
+Split-conformal classwise quantiles need `ceil((n+1)(1−α))/n ≤ 1`. With
+CIFAR-100's 100 test images per class, measured directly:
+
+| samples/class | α=0.01 | α=0.05 | α=0.1 |
+|---|---|---|---|
+| 100 (full test) | degenerate (level=1.000) | ok | ok |
+| 50 (50/50 cal/eval split) | **undefined (∞)** | ok | ok |
+| 25 (split-half within cal, gate A) | **undefined (∞)** | degenerate (level=1.000) | ok |
+
+Consequence, fixed in advance: on CIFAR-100 the §8.8 multi-α requirement
+**cannot** be met — **gate A (split-half reliability) is reported at α=0.1 only**,
+and α=0.01 classwise δ_y is undefined. This is a *sample-count* limit, not a
+result, and it is a further reason CIFAR-100 is debug-only. The full multi-α
+sweep {0.01, 0.05, 0.1} runs on Pl@ntNet, where head classes have enough
+calibration samples — and the same arithmetic will make α=0.01 undefined for
+Pl@ntNet's **tail** classes, which is exactly why §6.2 requires head vs. tail to
+be reported separately rather than pooled.
