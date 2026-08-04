@@ -329,6 +329,65 @@ predict, and their characterized optimum should be used instead.
 
 ---
 
+---
+
+## EFFECT OF THE AMENDMENTS — gate B flipped FAIL -> PASS (2026-08-04)
+
+Phase 1 was re-run on CIFAR-100 after Amendment 2's default changed from
+`conformal` to `empirical`. **Nothing else about gate B changed** — same
+descriptors, same splits, same ridge, same seed.
+
+| run | δ_y estimator | held-out R² (PRIMARY `stable` set) | gate B |
+|---|---|---|---|
+| before | conformal (level-mismatched, +0.116 bias) | +0.025, CI [−0.376, +0.301] | **FAIL** |
+| after | empirical (level-matched) | **+0.309, CI [+0.055, +0.484]** | **PASS** |
+
+Normalized by the target ceiling: **+0.484, CI [+0.086, +0.758]**.
+
+So the estimator artefact was **masking a real geometry → δ_y relationship**. This is
+the fourth time an n-dependent quantile-level artefact distorted a result in this
+repo (Phase-0 components, δ_y↔prevalence correlation, §6.4's +12.66, and now gate
+B's null result). The pattern is worth naming: **whenever a per-group conformal
+quantile is compared against a pooled one, check the level before believing the
+number.**
+
+**The pre-registered feature policy validated itself.** `stable` (9 features,
+stability ≥0.90) PASSES; `full` (15 features) gives +0.226, CI [−0.103, +0.421] and
+FAILS. The unstable features add noise exactly as
+`descriptor_stability_findings.md` predicted — and because `stable` was named
+PRIMARY *before* any of this was run, that is not selection after the fact.
+
+### Gate C still fails, and CIFAR-100 cannot fix it
+
+`full` beats `distance_only` by +0.147 but CI [−0.104, +0.278] includes 0 —
+underpowered at 50 held-out classes. The prevalence ablation is **undefined**
+(balanced dataset). Gate C is decided on Pl@ntNet.
+
+### §6.4 beats its null but stays negative — and §9 shows why
+
+| objective | observed | shuffled null | beats null |
+|---|---|---|---|
+| class_conditional (PRIMARY) | −37.56 [−40.55, −34.57] | −45.88 [−46.94, −44.83] | **yes** (+8.3) |
+| macro (secondary) | −6.45 [−7.37, −5.54] | −12.49 [−13.31, −11.66] | **yes** (+6.0) |
+
+So δ̂ carries genuine class-specific information (it decisively beats a null with
+identical marginals), but is too weak to beat a global threshold. The §9 bundle
+diagnoses the cost precisely:
+
+| metric | uncorrected | corrected |
+|---|---|---|
+| avg set size | 1.30 | **4.18** |
+| marginal coverage | 0.902 | 0.894 |
+| CovGap | 0.0505 | 0.0497 |
+| worst-class coverage | 0.717 | **0.717** |
+
+The correction **triples set size while leaving worst-class coverage bit-identical
+and CovGap essentially unchanged** — it is not helping the classes that need help.
+At R² ≈ 0.31 the prediction noise costs more than the signal buys. Consistent with
+every other CIFAR-100 limit; this is a debug reading, not a gate verdict.
+
+---
+
 ## Status
 
 - Amendment 1: **implemented + tested** (`pcc/eval/decomposition.py:group_quantile`).

@@ -80,22 +80,87 @@ class INaturalist2018Val:
         return img, self.labels[idx]
 
 
-def plantnet_val(root: str, split: str = "val", transform=None):
-    """Pl@ntNet-300K split as a torchvision ImageFolder over
-    `{root}/images/{split}`.
+# LTC's score-split names are NOT directory names. `PlantNet.split_folder` is
+# `os.path.join(root, split)` with split in {train, val, test} — there is no `cal`
+# directory. The released `cal` and `val` score arrays are BOTH derived from the
+# `val` directory (see ltc_cal_val_indices).
+SCORE_SPLIT_TO_DIR = {"cal": "val", "val": "val", "test": "test", "train": "train"}
 
-    CAUTION (see reports/phase0_checkpoint_gate.md, G2): ImageFolder assigns
-    class indices by sorted folder name. If LTC's `PlantNet` class used a
-    different species-id -> index convention, per-column comparison (NN matching,
-    G2) will be misaligned even for the correct checkpoint, while accuracy (G1),
-    true-prob curve (G3) and label-multiset (G4) stay valid because they are
-    invariant to a consistent relabeling. Print `class_to_idx` and sanity-check
-    accuracy before trusting G2 on Pl@ntNet.
+
+def ltc_cal_val_indices(n_val: int, frac_val: float = 0.3):
+    """Reproduce LTC's 4-way split of the `val` directory into proper-val / cal.
+
+    From `train_models/train.py:get_dataloaders` (proper_cal branch):
+
+        np.random.seed(0)
+        num_val_samples = int(np.floor(frac_val * len(val_dataset)))
+        indices = np.arange(len(val_dataset)); np.random.shuffle(indices)
+        proper_val_indices = indices[:num_val_samples]   # -> released `val` scores
+        proper_cal_indices = indices[num_val_samples:]   # -> released `cal` scores
+
+    The seed is fixed, so MEMBERSHIP is exactly reconstructable (row ORDER is not —
+    the loaders use shuffle=True, which is why the gate stays permutation-invariant).
+    Reconstructing membership is what makes N and the label multiset (G4) a real
+    check rather than a mismatch.
+
+    Uses the legacy global RNG deliberately: `np.random.seed(0)` +
+    `np.random.shuffle` must be byte-identical to theirs, so do NOT switch to
+    `default_rng` here.
+    """
+    state = np.random.get_state()
+    try:
+        np.random.seed(0)
+        num_val = int(np.floor(frac_val * n_val))
+        idx = np.arange(n_val)
+        np.random.shuffle(idx)
+        return idx[:num_val], idx[num_val:]
+    finally:
+        np.random.set_state(state)
+
+
+def plantnet_imagefolder(root: str, score_split: str = "cal", transform=None):
+    """The full Pl@ntNet-300K ImageFolder backing a given SCORE split.
+
+    LTC's `PlantNet` subclasses `torchvision.datasets.ImageFolder`, so the class
+    index convention IS ImageFolder's (sorted class-folder names). That resolves
+    the earlier G2 uncertainty: per-column comparison is valid on Pl@ntNet.
+
+    `root` must be the directory that CONTAINS the split folders. Both layouts are
+    accepted: `{root}/{split}` and `{root}/images/{split}`.
     """
     from torchvision.datasets import ImageFolder
 
-    path = os.path.join(root, "images", split)
-    return ImageFolder(path, transform=transform)
+    d = SCORE_SPLIT_TO_DIR.get(score_split, score_split)
+    for cand in (os.path.join(root, "images", d), os.path.join(root, d)):
+        if os.path.isdir(cand) and any(
+            e.is_dir() for e in os.scandir(cand)
+        ):
+            return ImageFolder(cand, transform=transform)
+    raise FileNotFoundError(
+        f"No populated Pl@ntNet split directory for score split {score_split!r} "
+        f"(looked for '{d}' under {root}/images and {root}). Download the dataset "
+        f"from Zenodo record 5645731 first — creating an empty folder does not help."
+    )
+
+
+def plantnet_scored_subset(root: str, score_split: str = "cal", transform=None):
+    """The exact image subset whose scores LTC released for `score_split`.
+
+    For `cal` / `val` this applies `ltc_cal_val_indices` to the `val` directory, so
+    the returned subset matches the released array's size and label multiset. For
+    `test` the whole `test` directory is used.
+
+    Returns (dataset_or_subset, labels_array, class_to_idx).
+    """
+    from torch.utils.data import Subset
+
+    ds = plantnet_imagefolder(root, score_split, transform=transform)
+    targets = np.asarray(ds.targets)
+    if score_split in ("cal", "val"):
+        proper_val, proper_cal = ltc_cal_val_indices(len(ds))
+        sel = proper_cal if score_split == "cal" else proper_val
+        return Subset(ds, sel.tolist()), targets[sel], ds.class_to_idx
+    return ds, targets, ds.class_to_idx
 
 
 def load_released_scores(folder: str, dataset: str, split: str = "val",
