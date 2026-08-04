@@ -125,6 +125,38 @@ So: **use all 200/class for CIFAR-100 Phase 1; do not re-extract at 400.** The
 for the debug run. (`00a` still defaults to 400 for anyone who wants the plateau
 measured later.)
 
+## Open issue 2 is now INSTRUMENTED (2026-08-04)
+
+`descriptor_stability_by_stratum` measures stability separately per prevalence
+quartile, so the gate-C contamination risk is quantified instead of assumed.
+
+**Disjoint halves cannot measure the tail at all.** They need `2q` images per class;
+on a Pl@ntNet-like simulation the two rarest quartiles were `insufficient_data`
+even at q=5. Leaving it there would mean the risk stays unmeasured, so a
+**bootstrap** estimator was added (two independent resamples of q images, with
+replacement) which works whenever `q <= n_y`.
+
+Measured (simulated long tail, 200 classes, images/class p25=5 median=9 max=300):
+
+| stratum | q=5 | q=10 |
+|---|---|---|
+| q0 rarest (n=2–5) | **0.612** | **0.688** |
+| q1 (n=5–9) | 0.810 | 0.815 |
+| q2 (n=9–25) | 0.859 | 0.887 |
+| q3 head (n=25–300) | 0.875 | 0.896 |
+| **head − tail spread** | **+0.263** | **+0.209** |
+
+A monotone gradient of descriptor quality with prevalence, exactly as feared. Any
+gate-C conclusion on Pl@ntNet **must** be reported next to this spread: if geometry
+appears predictive mainly where prevalence is high, prevalence-linked descriptor
+noise is a live alternative explanation.
+
+**Estimator caveat, deliberately loud.** The two bootstrap resamples share samples,
+so bootstrap correlations are biased UPWARD versus disjoint halves — the two are
+NOT comparable to each other. They ARE comparable across strata when the same
+method and q are used everywhere, which is all the head/tail comparison requires.
+The `method` field is recorded in every result dict so no table can mix them.
+
 ## Open issue 1 — the curve has NOT plateaued
 
 0.90 is crossed only at q=100, which is also the **largest q testable** here

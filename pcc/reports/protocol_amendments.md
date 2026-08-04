@@ -388,6 +388,90 @@ every other CIFAR-100 limit; this is a debug reading, not a gate verdict.
 
 ---
 
+---
+
+## MEASURED: Pl@ntNet calibration is far thinner than assumed (2026-08-04)
+
+From the released `cal` labels alone (21,783 samples, 1081 classes; zero images):
+
+| statistic | value |
+|---|---|
+| classes with ≥1 cal sample | 976 |
+| **classes with ZERO cal samples** | **105** (δ_y undefined; `fallback_policy.md` applies) |
+| per-class count p25 / **median** / p75 / p90 / max | 1 / **2** / 10 / 43 / 616 |
+
+**Half the classes have ≤2 calibration samples.**
+
+### Multi-α (§8.8) on real data — deployment view
+
+A classwise *conformal* quantile is finite only if `n ≥ ceil(1/α) − 1`:
+
+| α | n needed | classes supported |
+|---|---|---|
+| 0.01 | ≥99 | **57 / 1081 (5.3%)** |
+| 0.05 | ≥19 | **187 / 1081 (17.3%)** |
+| 0.1 | ≥9 | **304 / 1081 (28.1%)** |
+
+So **~72% of classes cannot receive a finite classwise threshold even at α=0.1** and
+fall back to the global threshold. This is the *deployment* view; the *prediction
+target* uses the level-matched `empirical` estimator (Amendment 2), which is defined
+for any n ≥ 1 but is severely noisy at n = 1–2.
+
+### Consequence 1 — Phase 1 must run on a prevalence-selected subset
+
+Gate A needs to split each class's samples in half, so it needs n ≥ 2 at absolute
+minimum and realistically ≥10. With a median of 2, gate A **cannot** run on the full
+class set. Matched-n cost:
+
+| n_cal | classes kept | fit / held-out | samples per gate-A half |
+|---|---|---|---|
+| 10 | 283 (26.2%) | 141 / 142 | 5 |
+| 20 | 184 (17.0%) | 92 / 92 | 10 |
+| 25 | 152 (14.1%) | 76 / 76 | 12–13 |
+| 50 | 98 (9.1%) | 49 / 49 | 25 |
+
+Every choice discards 74–91% of classes, and the discard is **prevalence-linked by
+construction**. Gate A/B/C therefore measure extrapolation *among head-ish classes
+only*. This must be stated in every table; it is not a detail.
+
+### Consequence 2 — this VALIDATES the project's premise
+
+If 72% of classes cannot get a classwise threshold, then every existing per-class
+method is undefined there and falls back to global. A method that **predicts** δ_y
+from geometry needs no calibration samples for the target class, so it addresses
+exactly the regime where the incumbents have nothing. The thin tail is the problem
+the project claims to solve, and the data confirms the problem is real.
+
+### Consequence 3 — the tail can still be EVALUATED, just not used as a target
+
+There is no ground-truth δ_y for a 2-sample class, so gate B (R² against δ_y) is
+necessarily restricted to the estimable subset. But **efficiency can be evaluated on
+the tail**: one tail class gives a useless coverage estimate (0/2, 1/2, 2/2), while
+**macro-coverage aggregated over ~700 tail classes is estimable**. That is precisely
+what macro-coverage is for (Bhattacharyya–Ding–Barber). So the split is:
+
+- **gate A / B / C** → estimable subset (n_cal-restricted), reported with the
+  selection made explicit;
+- **§6.4 / efficiency** → ALL classes including the tail, aggregated via
+  macro-coverage, which is where the claim actually pays off.
+
+### PROPOSED `n_cal` — pre-register a PAIR, decided before any Phase-1 run
+
+Two competing pressures: more classes → tighter gate-B/C CIs (the binding
+constraint on CIFAR-100 at 50 held-out classes); more samples/class → higher gate-A
+ceiling (the cap on achievable R²). No single value optimises both.
+
+- **PRIMARY: `n_cal = 25`** — 152 classes, 12–13 samples per gate-A half. This
+  matches the CIFAR-100 configuration that produced a usable ceiling
+  (reliability 0.638), so the ceiling is known to be workable at this depth.
+- **SENSITIVITY: `n_cal = 10`** — 283 classes, 5 per half. Nearly double the classes
+  (more B/C power) at a lower gate-A ceiling.
+
+**Both always reported.** Fixing the pair now, before any Pl@ntNet Phase-1 run,
+is what keeps this from becoming a post-hoc choice. Awaiting human confirmation.
+
+---
+
 ## Status
 
 - Amendment 1: **implemented + tested** (`pcc/eval/decomposition.py:group_quantile`).

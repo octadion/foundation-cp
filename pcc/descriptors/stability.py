@@ -34,6 +34,32 @@ def _disjoint_halves(classes, n_classes, q, rng):
     return np.array(a, int), np.array(b, int)
 
 
+def _bootstrap_pair(classes, n_classes, q, rng):
+    """Two INDEPENDENT bootstrap resamples of q images per class (with replacement).
+
+    Needed because disjoint halves require 2q images per class, which the rare
+    strata of a long-tailed dataset simply do not have — measured on a Pl@ntNet-like
+    simulation, the two rarest quartiles were unmeasurable even at q=5. Without an
+    estimator that works at q <= n_y, the head-vs-tail descriptor-quality gap (the
+    gate-C contamination risk) cannot be quantified at all.
+
+    CAVEAT, and it matters: the two resamples SHARE samples, so this correlation is
+    biased UPWARD relative to disjoint halves. Bootstrap numbers are therefore NOT
+    comparable to disjoint-half numbers. They ARE comparable ACROSS STRATA as long
+    as the same method and the same q are used everywhere — which is exactly what
+    the head/tail comparison needs.
+    """
+    a, b = [], []
+    for y in range(n_classes):
+        idx = np.where(classes == y)[0]
+        if len(idx) == 0:
+            continue
+        k = min(q, len(idx))
+        a.extend(rng.choice(idx, k, replace=True).tolist())
+        b.extend(rng.choice(idx, k, replace=True).tolist())
+    return np.array(a, int), np.array(b, int)
+
+
 def _corr_per_feature(P1, P2):
     """Pearson correlation across classes, per descriptor column."""
     out = np.full(P1.shape[1], np.nan)
@@ -53,9 +79,66 @@ def _corr_per_feature(P1, P2):
 QUOTA_DETERMINED = ("n_eff", "log_prevalence")
 
 
+def descriptor_stability_by_stratum(features, logits, classes, n_classes, counts, *,
+                                    quotas=(10, 25, 50), n_reps=3, seed=42,
+                                    stable_threshold=0.9, n_strata=4,
+                                    method="bootstrap"):
+    """Descriptor stability computed SEPARATELY per prevalence stratum.
+
+    THE RISK THIS GUARDS (descriptor_stability_findings.md, "Open issue 2"). On a
+    long-tailed dataset, head classes can supply many images per class and tail
+    classes cannot. If descriptors are noisier for rare classes, then **descriptor
+    quality correlates with prevalence** — and §6.3 gate C asks whether geometry
+    beats log-prevalence. Geometry would then look predictive exactly where
+    prevalence is high, i.e. gate C could PASS for a spurious reason. §3.3 states
+    the rule directly: never use descriptors of differing quality between head and
+    tail without reporting it.
+
+    A stratum whose classes cannot supply `2*q` images is reported as
+    `insufficient_data` rather than silently dropped — that absence IS the finding.
+
+    Returns {stratum_name: {quota: {...}}} plus `spread`: the head-minus-tail gap in
+    mean stability at each quota. A large positive spread is the contamination
+    warning; it must be reported alongside any gate-C conclusion.
+    """
+    from pcc.eval.tail import prevalence_strata
+
+    strata, unevaluable = prevalence_strata(counts, n_strata, min_count=1)
+    out = {}
+    for name, cls in strata.items():
+        sub = np.isin(classes, cls)
+        if sub.sum() == 0:
+            out[name] = {"insufficient_data": True, "n_classes": int(len(cls))}
+            continue
+        res = descriptor_stability(
+            features[sub], None if logits is None else logits[sub], classes[sub],
+            n_classes, quotas=quotas, n_reps=n_reps, seed=seed,
+            stable_threshold=stable_threshold, method=method)
+        res["n_classes_in_stratum"] = int(len(cls))
+        out[name] = res
+
+    names = [k for k in out if not out[k].get("insufficient_data")]
+    spread = {}
+    if len(names) >= 2:
+        tail, head = names[0], names[-1]
+        for q in quotas:
+            t = out[tail]["by_quota"].get(q, {})
+            h = out[head]["by_quota"].get(q, {})
+            if not t.get("insufficient_data") and not h.get("insufficient_data"):
+                spread[q] = {"tail": t["mean_corr"], "head": h["mean_corr"],
+                             "head_minus_tail": h["mean_corr"] - t["mean_corr"]}
+            else:
+                spread[q] = {"tail": None if t.get("insufficient_data") else t.get("mean_corr"),
+                             "head": None if h.get("insufficient_data") else h.get("mean_corr"),
+                             "head_minus_tail": None,
+                             "note": "a stratum could not supply 2*q images per class"}
+    return {"by_stratum": out, "spread": spread, "method": method,
+            "unevaluable_classes": int(len(unevaluable))}
+
+
 def descriptor_stability(features, logits, classes, n_classes, *,
                          quotas=(10, 25, 50, 100), n_reps=5, seed=42,
-                         stable_threshold=0.9):
+                         stable_threshold=0.9, method="disjoint"):
     """Stability of φ(y) as a function of images-per-class.
 
     Returns per-quota mean/CI of the per-feature correlation between two disjoint
@@ -74,7 +157,8 @@ def descriptor_stability(features, logits, classes, n_classes, *,
         reps = []
         n_classes_used = 0
         for _ in range(n_reps):
-            ia, ib = _disjoint_halves(classes, n_classes, q, rng)
+            pair = _disjoint_halves if method == "disjoint" else _bootstrap_pair
+            ia, ib = pair(classes, n_classes, q, rng)
             if len(ia) == 0:
                 break
             P1, names = build_descriptors(features[ia], None if logits is None else logits[ia],
@@ -111,5 +195,5 @@ def descriptor_stability(features, logits, classes, n_classes, *,
             break
 
     return {"by_quota": per_quota, "feature_names": names,
-            "stable_threshold": stable_threshold,
+            "stable_threshold": stable_threshold, "method": method,
             "recommended_quota": recommended}

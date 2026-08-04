@@ -98,6 +98,40 @@ Start here.
 
 ---
 
+## VERIFIED on Colab — Pl@ntNet Pre-check A PASSED (2026-08-04)
+
+Zero-image artefact check, `notebooks/00_verify_checkpoint.ipynb` cells 1–5:
+
+| item | value | verdict |
+|---|---|---|
+| released split used | `cal` | the release ships **cal + test only** — there is no `val` split |
+| released rows `N` | **21,783** | **matches our reconstruction exactly** (see below) |
+| released classes `C` | **1081** | matches `NUM_CLASSES['plantnet']` |
+| checkpoint `fc.out_features` | **1081** | head matches released classes → correct checkpoint/arch |
+| released self-accuracy | **0.7945** | LTC's Pl@ntNet model top-1 on `cal`; reference number |
+| checkpoint sha256 | `4b82e4aa1a97d281…` | recorded |
+| `labels[min,max]` | **[0, 1075]** | see the zero-sample-class note below |
+
+**Split reconstruction independently confirmed.** LTC builds `cal` as a 70% subset
+of the `val` directory via `np.random.seed(0); np.random.shuffle(indices)`, taking
+the first 30% as proper-val. For a 31,118-image val directory that gives
+`floor(0.3 × 31118) = 9,335` proper-val and `31118 − 9335 = 21,783` cal — exactly
+the released row count. So `ltc_cal_val_indices` reproduces their membership, which
+is what makes the G4 label-multiset check meaningful rather than a guaranteed
+mismatch. (Row ORDER is still unrecoverable — loaders use `shuffle=True` — so the
+gate remains permutation-invariant.)
+
+**G2 is now ENABLED for Pl@ntNet.** LTC's `PlantNet` subclasses
+`torchvision.datasets.ImageFolder`, so its class-index convention IS ImageFolder's
+sorted-folder-name order. The earlier G2 uncertainty is resolved; all of G1–G4 apply.
+
+**Zero-sample classes exist already.** `labels.max() = 1075` with `C = 1081` means
+at least 5 classes have **no calibration samples at all**, so δ_y is undefined for
+them and `fallback_policy.md` applies immediately on real data. Cell 5b
+(Pre-check A2) quantifies this from the released labels alone — no images needed —
+and its output is the input to the **`n_cal` human decision** required by
+Amendment 2.
+
 ## Open items requiring on-Colab verification (cannot be done here)
 
 The multi-GB gdown artifacts were **not** downloaded in this environment. Before
@@ -227,6 +261,40 @@ loader shuffle is not seeded reproducibly). Consequences:
   - **One pass, not two.** In that single tar traversal, extract
     **(all val) ∪ (N-per-class from train)** — val for the gate, the per-class
     train quota for descriptors (§6.3). Never traverse the tar twice.
+
+## VERIFIED on Colab — Pl@ntNet Pre-check A PASSED (2026-08-04)
+
+Zero-image artefact check, `notebooks/00_verify_checkpoint.ipynb` cells 1–5:
+
+| item | value | verdict |
+|---|---|---|
+| released split used | `cal` | the release ships **cal + test only** — there is no `val` split |
+| released rows `N` | **21,783** | **matches our reconstruction exactly** (see below) |
+| released classes `C` | **1081** | matches `NUM_CLASSES['plantnet']` |
+| checkpoint `fc.out_features` | **1081** | head matches released classes → correct checkpoint/arch |
+| released self-accuracy | **0.7945** | LTC's Pl@ntNet model top-1 on `cal`; reference number |
+| checkpoint sha256 | `4b82e4aa1a97d281…` | recorded |
+| `labels[min,max]` | **[0, 1075]** | see the zero-sample-class note below |
+
+**Split reconstruction independently confirmed.** LTC builds `cal` as a 70% subset
+of the `val` directory via `np.random.seed(0); np.random.shuffle(indices)`, taking
+the first 30% as proper-val. For a 31,118-image val directory that gives
+`floor(0.3 × 31118) = 9,335` proper-val and `31118 − 9335 = 21,783` cal — exactly
+the released row count. So `ltc_cal_val_indices` reproduces their membership, which
+is what makes the G4 label-multiset check meaningful rather than a guaranteed
+mismatch. (Row ORDER is still unrecoverable — loaders use `shuffle=True` — so the
+gate remains permutation-invariant.)
+
+**G2 is now ENABLED for Pl@ntNet.** LTC's `PlantNet` subclasses
+`torchvision.datasets.ImageFolder`, so its class-index convention IS ImageFolder's
+sorted-folder-name order. The earlier G2 uncertainty is resolved; all of G1–G4 apply.
+
+**Zero-sample classes exist already.** `labels.max() = 1075` with `C = 1081` means
+at least 5 classes have **no calibration samples at all**, so δ_y is undefined for
+them and `fallback_policy.md` applies immediately on real data. Cell 5b
+(Pre-check A2) quantifies this from the released labels alone — no images needed —
+and its output is the input to the **`n_cal` human decision** required by
+Amendment 2.
 
 ## Open items requiring on-Colab verification (cannot be done here)
 
