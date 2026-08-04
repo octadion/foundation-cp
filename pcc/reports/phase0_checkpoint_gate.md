@@ -85,6 +85,50 @@ as `fallback_policy.md`).
 - A `GATE_PASSED` marker file on Drive that `01_setup_extract` checks before
   running.
 
+## CORRECTIONS to the criteria, made during the first Pl@ntNet run (2026-08-04)
+
+Three specification errors were found when the gate first ran on real Pl@ntNet
+data. All three are recorded here because §12 requires criteria changes to be
+explicit, and because two of them would have produced a FALSE FAILURE on a
+correct checkpoint.
+
+**C1 — G1's tolerance was mis-derived (would false-alarm).** The pre-registered
+`|acc_mine − acc_rel| ≤ 0.002` assumed a like-for-like comparison. But the gate
+compares a **subsample** accuracy (3,000 images) against the **full** released set
+(21,783), so binomial sampling noise alone is `sqrt(p(1−p)/n)` = **0.0073** at
+p≈0.8, n=3000 — larger than the entire tolerance. A correct checkpoint would fail
+most of the time.
+
+Corrected rule: `tol_effective = max(0.002, 3 · SE)` with SE computed from the
+actual subsample size. Observed on the real run: acc_mine 0.8040 vs acc_rel 0.7945,
+diff 0.0095 = **1.31 σ**, tol_effective 0.0217 → **PASS**.
+
+This is a specification fix, not a loosening to pass. Verified that the widened
+tolerance still catches real breakage: a deliberately corrupted comparison failed
+at **43.7 σ**. The failure modes G1 guards (preprocessing drift, normalization
+mismatch, wrong checkpoint) move accuracy by whole percentage points, far beyond 3 σ.
+`diff_in_sigmas` is now reported so the margin is always visible.
+
+**C2 — G4 was applied to the wrong set (would always fail).** `label_multiset_equal`
+was called on the forward-passed **subsample** (3,000) versus the released array
+(21,783). Per-class counts can never match, so G4 was a guaranteed failure
+regardless of the checkpoint. Fixed: G4 now takes `full_mine_labels`, the labels of
+the **entire reconstructed cal subset**. Those need **no forward pass at all** —
+they come straight from `ltc_cal_val_indices` — so G4 becomes what it was meant to
+be: a real test of whether LTC's cal membership was reproduced. The result dict
+records `scope` so a subsample-scoped G4 can never be misread as meaningful.
+
+**C3 — G2 exhausted RAM (crashed the session).** `nn_match_distances` built
+`abs(reference[None] - chunk[:, None])`, i.e. a `[256, 21783, 1081]` float64 array =
+**48.2 GB**. The blocking was on the wrong axis. Replaced with an exact pruning
+scheme: the row max is 1-Lipschitz in L∞, so `|max(a) − max(b)| ≤ ‖a−b‖_∞`, and
+sorting the reference by row max lets a binary search discard everything outside
+`[q_max ± tol]` with **no false negatives**. Guarantee, stated precisely: the
+returned distance is exact whenever it is ≤ tol; beyond tol it is only guaranteed
+to be > tol. That is all G2 needs (it asks what fraction lie within tol). Verified
+against brute force: identical within/outside classification, bit-exact values for
+within-tol rows, 40/40 planted duplicates found, 0 false positives.
+
 ## Scope (per the revised cheap-first order — see release_audit.md)
 
 - **CIFAR-100 — reproduction gate N/A.** No released checkpoint exists, so we
