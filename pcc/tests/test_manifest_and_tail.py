@@ -125,6 +125,41 @@ def test_compare_by_stratum_reports_both_arms_and_never_pools():
     assert res["uncorrected"]["_unevaluable"]["n_classes"] == 10
 
 
+
+
+# ------------------- G2 matcher: certified progressive widening ----------------
+
+def test_nn_match_is_exact_across_noise_regimes():
+    """The matcher must return the TRUE nearest-neighbour L-inf distance whatever
+    the actual noise level.
+
+    A single pruning window of radius `tol` was wrong and badly misled the Pl@ntNet
+    gate: the true twin of a row differed in row-max by ~3e-4, i.e. 3x the 1e-4
+    window, so it was pruned away for every non-saturated row and a median distance
+    of 0.55 was reported for score sets that actually agreed closely.
+    """
+    from pcc.eval.score_repro import nn_match_distances
+    rng = np.random.default_rng(0)
+    N, C = 1500, 200
+    lab = rng.integers(0, C, N)
+    lg = rng.normal(size=(N, C))
+    lg[np.arange(N), lab] += 4
+    e = np.exp(lg - lg.max(1, keepdims=True))
+    R = e / e.sum(1, keepdims=True)
+
+    for scale in (3e-7, 9e-4, 9e-3, 3.0):      # last one = a different model
+        lg2 = lg + rng.normal(0, scale, (N, C)) if scale < 1 else rng.normal(size=(N, C))
+        if scale >= 1:
+            lg2[np.arange(N), lab] += 4
+        e2 = np.exp(lg2 - lg2.max(1, keepdims=True))
+        Q = e2 / e2.sum(1, keepdims=True)
+        idx = rng.choice(N, 120, replace=False)
+        brute = np.array([np.abs(R - Q[j][None, :]).max(1).min() for j in idx])
+        got = nn_match_distances(Q[idx], R, tol=1e-4)
+        assert np.allclose(brute, got, rtol=1e-9), \
+            f"matcher not exact at noise scale {scale}: max err {np.abs(brute-got).max():.2e}"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

@@ -129,6 +129,113 @@ to be > tol. That is all G2 needs (it asks what fraction lie within tol). Verifi
 against brute force: identical within/outside classification, bit-exact values for
 within-tol rows, 40/40 planted duplicates found, 0 false positives.
 
+## GATE RESULT — Pl@ntNet `cal`, FULL SET: **FAIL** (2026-08-04). NOT RESOLVED.
+
+Run on all 21,783 released rows (no subsampling), `LOSS=cross_entropy`,
+`best-plantnet-model.pth`, sha256 `4b82e4aa1a97d281…`:
+
+| criterion | value | verdict |
+|---|---|---|
+| **G1** accuracy | ours 0.7950236 vs released 0.7945187 — diff **5.05e-4** (0.18 σ) | **PASS** |
+| **G4** label multiset | 21,783 = 21,783, per-class counts exact | **PASS** |
+| **G3** true-prob curve | max abs diff **0.0040** (tol 1e-3) | **FAIL** |
+| **G2** NN row match | **19.5%** within 1e-4; median L∞ **0.554** (tol 1e-5) | **FAIL** |
+
+**Extraction is BLOCKED. The gate did its job and the project does not proceed
+past it until this is explained.**
+
+### Why this pattern is confusing, and what it rules out
+
+Going from a 3,000 subsample to the full set moved G1 from 0.0098 (1.36 σ) to
+**5.05e-4** and G3 from 0.0202 to 0.0040 — so most of the earlier discrepancy was
+sampling noise. What did NOT move is G2: median L∞ stayed ~0.55.
+
+- Not a wrong-architecture or badly-loaded checkpoint: accuracy agrees to 11
+  samples in 21,783.
+- Not wrong images, labels or class indexing: G4 is exact, and an accidental
+  agreement of per-class counts across 1,081 long-tailed classes is not credible.
+- Not the focal-loss variant mix-up first suspected: that hypothesis was checked
+  and **not confirmed** (the recursive glob resolves consistently in the observed
+  layout). A `LOSS` knob and a same-variant assertion were added anyway as
+  defensive code, and the notebook now lists every candidate path.
+
+G1 and G3 are **order-invariant distribution statistics**; G2 is the only criterion
+that requires **row-level correspondence**. So the live explanations are:
+
+1. the two score sets are **different multisets of rows** (an equally accurate,
+   similarly calibrated but genuinely different model, or different inputs), or
+2. **G2 itself is at fault** — the matcher was rewritten this same day to fix a
+   48 GB allocation, so it is a legitimate suspect.
+
+### Diagnostic added to separate them (cell 7c)
+
+If the two sets contain the same rows up to permutation, then sorting each set by
+row-max must give **identical** vectors — a test that involves no matching and so
+cannot be confounded by a bug in the matcher. Verified to discriminate: identical
+rows permuted give max|diff| = **0.00e+00**; a different-but-equally-accurate model
+gives **8.6e-02**.
+
+Cell 7c also reports the mean max-probability of matched vs unmatched rows. If the
+19.5% that matched are the saturated ones, that is the signature of two different
+accurate models (confident rows coincide, uncertain rows diverge).
+
+### What will NOT be done
+
+The tolerances stay. G2's median of 0.554 is three orders of magnitude above float
+noise; loosening it to obtain a PASS would reinstate exactly the silent failure this
+gate exists to catch — extraction would run, descriptors would compute, Phase 1
+would emit numbers, and none of it would mean anything.
+
+## RESOLVED — the G2 failure was MY BUG, not the checkpoint (2026-08-04, later)
+
+Cell 7c settled it, and it indicted the matcher rather than the model. Two numbers
+read together:
+
+- `sorted row-max: median|diff| = **2.90e-04**` — the two score sets agree closely
+- matched rows mean max-prob **0.9957** vs unmatched **0.7965**
+
+The G2 pruning window was `[q_max ± tol]` with **tol = 1e-4**, while the actual
+per-row row-max difference has median **2.9e-4** — **three times wider than the
+window**. So each row's true twin was *systematically excluded from the search*,
+and a large distance was reported instead. Saturated rows (row-max ≈ 1.0 on both
+sides, difference ≈ 0) stayed inside the window and matched; everything less
+confident was pruned away. That is exactly the observed "19.5% matched, all of them
+confident" signature. **The median of 0.554 was an artefact of my pruning radius.**
+
+### Fix: progressive widening with a correctness certificate
+
+Search radius `r` is widened over `(tol, 10·tol, 100·tol, 1e-2, 1e-1, ∞)` and
+stops as soon as the best distance found satisfies `d ≤ r`. That condition is a
+proof of optimality: any row outside the window differs in row-max by more than
+`r ≥ d`, and since `L∞ ≥ |row-max difference|`, its distance exceeds `d`. So the
+returned value is the TRUE nearest-neighbour distance, at bounded cost.
+
+Verified exact against brute force (`rtol=1e-9`) at every noise level — 3e-7,
+9e-4, 9e-3, and a genuinely different model. Regression test:
+`tests/test_manifest_and_tail.py::test_nn_match_is_exact_across_noise_regimes`.
+
+### Also retracted: the "DIFFERENT MODEL" claim in cell 7b
+
+Cell 7b declared **DIFFERENT MODEL → Sec 2.3.4 BLOCKER** because the full-set
+accuracy gap (5.05e-4 ≈ 11 argmax flips in 21,783) exceeded a 1e-4 threshold I had
+picked. That was an over-claim: a handful of argmax flips is equally consistent with
+numerical nondeterminism (PIL/torchvision resize behaviour, cuDNN kernel choice) as
+with a different checkpoint. Accuracy alone cannot distinguish them. Cell 7b now
+reports the flip count and defers the verdict to G2's — now exact — distances:
+
+| G2 median distance | interpretation |
+|---|---|
+| ~1e-7 | same model, same inputs |
+| ~1e-4 | same model, small numerical/preprocessing drift |
+| >1e-2 | genuinely different model → §2.3.4 blocker |
+
+### Status: gate must be RE-RUN
+
+The verdict recorded above (FAIL) was produced by a broken matcher and is void.
+Tolerances were NOT changed — G2's tolerance is still 1e-4 with a 1e-5 median
+requirement. What changed is that G2 now computes the quantity it always claimed to
+compute. Re-run required before any conclusion about the checkpoint.
+
 ## Scope (per the revised cheap-first order — see release_audit.md)
 
 - **CIFAR-100 — reproduction gate N/A.** No released checkpoint exists, so we

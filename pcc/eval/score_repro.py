@@ -66,23 +66,45 @@ def nn_match_distances(sample_rows: np.ndarray, reference: np.ndarray,
     ref_max = reference.max(axis=1)
     order = np.argsort(ref_max, kind="stable")
     sorted_max = ref_max[order]
+    n_ref = len(reference)
+
+    def _best_within(x, r):
+        """Min L-inf over reference rows whose row-max is within r of x's."""
+        qm = float(x.max())
+        lo = int(np.searchsorted(sorted_max, qm - r, side="left"))
+        hi = int(np.searchsorted(sorted_max, qm + r, side="right"))
+        cand = order[lo:hi]
+        if len(cand) == 0:
+            return np.inf, 0
+        best = np.inf
+        for s in range(0, len(cand), cand_block):
+            blk = reference[cand[s:s + cand_block]]
+            best = min(best, float(np.abs(blk - x[None, :]).max(axis=1).min()))
+        return best, len(cand)
 
     out = np.empty(len(sample_rows))
     for i, x in enumerate(sample_rows):
-        qm = float(x.max())
-        lo = int(np.searchsorted(sorted_max, qm - tol, side="left"))
-        hi = int(np.searchsorted(sorted_max, qm + tol, side="right"))
-        cand = order[lo:hi]
-        if len(cand) == 0:
-            # distance provably exceeds tol; report the Lipschitz lower bound
-            j = min(max(lo, 0), len(sorted_max) - 1)
-            out[i] = abs(qm - float(sorted_max[j]))
-            continue
+        # PROGRESSIVE WIDENING WITH A CORRECTNESS CERTIFICATE.
+        #
+        # A single window of radius `tol` was WRONG and produced a badly misleading
+        # result on real data (2026-08-04): the true twin of a row differed in
+        # row-max by ~3e-4, i.e. THREE TIMES the 1e-4 window, so the twin was pruned
+        # away for every non-saturated row and a large distance was reported. Only
+        # saturated rows (row-max ~1.0 on both sides) survived the window, which is
+        # exactly the "19.5% matched, all of them confident" pattern observed.
+        #
+        # Certificate: if searching radius r yields best distance d <= r, then every
+        # row outside the window has |max difference| > r >= d, and since
+        # L-inf >= |max difference|, its distance exceeds d. So d is the TRUE
+        # minimum. Widening until that condition holds gives exact distances at
+        # bounded cost.
         best = np.inf
-        for s in range(0, len(cand), cand_block):
-            blk = reference[cand[s:s + cand_block]]            # [b, C]
-            d = np.abs(blk - x[None, :]).max(axis=1).min()
-            best = min(best, float(d))
+        for r in (tol, 10 * tol, 100 * tol, 1e-2, 1e-1, np.inf):
+            best, n_cand = _best_within(x, r)
+            if np.isfinite(best) and best <= r:
+                break                      # certified: this is the true minimum
+            if not np.isfinite(r) or n_cand >= n_ref:
+                break                      # searched everything
         out[i] = best
     return out
 
