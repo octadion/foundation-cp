@@ -242,6 +242,93 @@ the inflation it required, so this pathology is legible rather than mysterious.
 
 ---
 
+---
+
+## Amendment 4 — the §6.4 metric, RESOLVED (2026-08-03)
+
+Phase 1 ran end to end on CIFAR-100 and reported §6.4 = **+12.66** (sets *growing*
+by 12.7 labels, CI [10.77, 14.55]). That is an artefact, and chasing it exposed a
+genuine methodological gap. Two bugs were fixed on the way, then a third problem
+was found that should NOT be fixed by inventing another metric.
+
+**Fixed bug 1 — δ_y target carried a constant positive bias.** `delta_y_matched_n`
+defaulted to `estimator="conformal"`. Matching n removes the *n_y-dependence* of
+the bias but not the *level mismatch*: at n_cal=25, α=0.1 the per-class group is
+evaluated at level 0.96 while the pooled group sits at 0.9004. Control where the
+true δ_y is 0 for every class:
+
+| estimator | mean δ_y | fraction > 0 |
+|---|---|---|
+| conformal | **+0.1158** | 0.90 |
+| empirical | −0.0093 | 0.39 |
+
+On a [0,1] score scale that +0.116 inflates every threshold — which is exactly the
++12.66. **Default changed to `empirical`** for the prediction target; `conformal`
+remains for deployment-valid corrections.
+
+**Fixed bug 2 — the comparison drifted in coverage.** Applying δ̂ changes coverage,
+so sizes were compared at two different coverage levels. `size_at_matched_coverage`
+now absorbs the constant component before comparing.
+
+**UNRESOLVED — which coverage objective?** Three operationalizations, three
+structural confounds (all measured, not conjectured):
+
+| operationalization | oracle per-class δ̂ | pure constant δ̂ | verdict |
+|---|---|---|---|
+| sizes at nominal marginal coverage | — | — | coverage drifts; invalid |
+| sizes at MATCHED marginal coverage | +1.58 (worse) | −0.93 (better) | marginal CP is already optimal for marginal coverage, so a class-indexed correction *cannot* win |
+| class-conditional, held-out classes only | −16.57 (worse) | **+15.54 (better)** | coverage is constrained only on held-out classes while the SET spans all classes, so "raise exactly the measured classes' thresholds" wins for reasons unrelated to class structure |
+
+A pure constant beating the oracle is decisive evidence that the objective, not the
+implementation, is wrong.
+
+### RESOLVED by reading the literature, not by inventing a metric
+
+Bhattacharyya, Ding & Barber (arXiv 2606.28598, "Conformal Prediction with
+Macro-Coverage Guarantees"; code at github.com/tiffanyding/macro-guarantees) supply
+the two missing pieces:
+
+1. **The optimal set has the form `C(x) = {y : s(x,y) ≤ τ_y}`** — per-class
+   thresholds. So the FORM of our correction (τ_y = q̂ + δ_y) was right all along;
+   what was wrong was the objective it was scored against.
+2. **`macro_cov = class_cov[valid].mean()`** — macro-coverage is the *unweighted*
+   mean of per-class coverages (their `conformal.py`). Their code also defines
+   **`macro_cov_plus` = "MacroCov restricted to active classes"**, i.e. restricting
+   the objective to a subset of classes is a formalized concept, not a hack.
+
+That second point is what fixed confound (3): restrict the whole problem to the
+**held-out label space** — held-out columns of the score matrix, held-out samples,
+labels remapped — so there is no seen/held-out asymmetry to exploit. Plus allow the
+threshold vector to **deflate** as well as inflate, so a constant δ̂ is judged
+neutral instead of punished for over-covering.
+
+Implemented as `setsize.setsize_translation_heldout_space`. Controls, all measured:
+
+| δ̂ | gap (positive = smaller sets at the same objective) |
+|---|---|
+| oracle δ_y | **+0.045** |
+| oracle + constant | **+0.046** (constant is a no-op, as required) |
+| pure constant | ≈ −0.29 (neutral) |
+| shuffled oracle (null) | **−15.39** |
+| random noise | −12.54 |
+
+Regression tests: `tests/test_setsize.py::test_sec64_oracle_positive_and_null_negative`
+and `::test_sec64_constant_delta_is_a_noop`.
+
+### Objective choice, stated explicitly
+
+`δ_y = q̂_y − q̂_global` is a difference of per-class QUANTILES, so it targets
+**class-conditional** coverage — that is the PRIMARY objective. Under
+**macro-coverage** even an ORACLE δ_y scores **−0.64**, because per-class quantiles
+give every class exactly 1−α whereas the macro optimum deliberately trades over-
+and under-coverage across classes (precisely what 2606.28598 characterizes). So a
+negative under `objective="macro"` must NOT be read as δ̂ failing; it is reported as
+a secondary view only. If macro-coverage is ever adopted as the deployment
+objective, the *target* must change too — δ_y would no longer be the right thing to
+predict, and their characterized optimum should be used instead.
+
+---
+
 ## Status
 
 - Amendment 1: **implemented + tested** (`pcc/eval/decomposition.py:group_quantile`).

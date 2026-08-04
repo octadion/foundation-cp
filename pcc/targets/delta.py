@@ -41,7 +41,7 @@ def delta_y(cal_scores_true, class_of_sample, n_classes, alpha):
 
 
 def delta_y_matched_n(cal_scores_true, class_of_sample, n_classes, alpha, *,
-                      n_cal, seed=42, estimator="conformal"):
+                      n_cal, seed=42, estimator="empirical"):
     """δ_y estimated from a MATCHED number of calibration samples per class
     (Amendment 2, reports/protocol_amendments.md).
 
@@ -60,6 +60,20 @@ def delta_y_matched_n(cal_scores_true, class_of_sample, n_classes, alpha, *,
     Classes with fewer than `n_cal` samples are returned as NaN — report how many
     were dropped, since dropping them is itself prevalence-linked selection.
     Returns (delta [n_classes], kept_mask [n_classes]).
+
+    `estimator` DEFAULTS TO "empirical" (level-matched), and that default matters.
+    Matching n removes the dependence of the bias on n_y, but a `conformal`
+    quantile ALSO carries a level mismatch between the small per-class group and
+    the large pooled group: at n_cal=25 and α=0.1 the class group is evaluated at
+    level 0.96 while the pooled group sits at 0.9004. Measured on a control where
+    the true δ_y is 0 for every class:
+
+        conformal : mean δ_y = +0.1158  (90% of classes positive)   <- artefact
+        empirical : mean δ_y = -0.0093  (39% positive)              <- correct
+
+    On a [0,1] score scale a spurious +0.116 offset inflates every threshold and
+    made §6.4 report sets GROWING by ~12.7 labels. Use `estimator="conformal"`
+    only for a deployment-valid correction, never for the prediction target.
     """
     from pcc.eval.decomposition import group_quantile
 

@@ -203,7 +203,8 @@ def _sets_from_thresholds(score_matrix, thresholds, inflate=0.0):
 
 
 def min_size_at_worst_class_coverage(score_matrix, labels, n_classes, thresholds,
-                                     target, *, tol=1e-4, max_inflate=10.0):
+                                     target, *, tol=1e-4, max_inflate=10.0,
+                                     allow_deflate=False):
     """Smallest average set size achieving worst-class coverage >= `target`, by
     uniformly inflating `thresholds`.
 
@@ -226,7 +227,23 @@ def min_size_at_worst_class_coverage(score_matrix, labels, n_classes, thresholds
     lo = 0.0
     w0, _ = worst(0.0)
     if w0 >= target:
-        hi = 0.0
+        if not allow_deflate:
+            hi = 0.0
+        else:
+            # The vector already over-covers, so it is WASTEFUL: shrink it until the
+            # target is only just met. Without this a threshold vector carrying a
+            # large positive constant is punished for being generous rather than
+            # judged neutral — a constant is a pure global shift and must be a
+            # no-op (verified: constant goes from -16.27 to ~0 once deflation is
+            # allowed). Required for a fair §6.4 comparison.
+            hi, lo = 0.0, -max_inflate
+            while lo < hi - tol:
+                mid = (lo + hi) / 2
+                w, _ = worst(mid)
+                if w >= target:
+                    hi = mid
+                else:
+                    lo = mid
     else:
         hi = 0.5
         while hi <= max_inflate:

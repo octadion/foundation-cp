@@ -65,6 +65,54 @@ def test_holdout_translation_runs_and_flags_direction():
     assert res["n_holdout_points"] > 0
 
 
+
+
+# ---------------------- §6.4 resolved design (Amendment 4) ----------------------
+
+def _heldout_fixture(K=100, npc=400, boost=3.5, seed=0):
+    from pcc.eval.decomposition import group_quantile
+    rng = np.random.default_rng(seed)
+    n = npc * K
+    labels = np.repeat(np.arange(K), npc)
+    shift = rng.normal(0, 1.2, K)[labels]
+    logits = rng.normal(size=(n, K))
+    logits[np.arange(n), labels] += boost + shift
+    e = np.exp(logits - logits.max(1, keepdims=True))
+    S = 1 - e / e.sum(1, keepdims=True)
+    idx = rng.permutation(n)
+    cal, ev = idx[: n // 2], idx[n // 2:]
+    ct = S[cal, labels[cal]]
+    qg = group_quantile(ct, 0.1, "empirical")
+    delta = np.array([np.quantile(ct[labels[cal] == y], 0.9) - qg for y in range(K)])
+    return S[ev], labels[ev], qg, delta, np.arange(K // 2), rng
+
+
+def test_sec64_oracle_positive_and_null_negative():
+    """The §6.4 metric must reward real class structure and punish its null."""
+    from pcc.eval.setsize import setsize_translation_heldout_space as f
+    S, lab, qg, delta, held, rng = _heldout_fixture()
+    oracle = f(S, lab, 0.1, qg, delta, held)["gap"]
+    shuffled = delta.copy()
+    shuffled[held] = rng.permutation(delta[held])
+    null = f(S, lab, 0.1, qg, shuffled, held)["gap"]
+    assert oracle > 0, f"oracle gap {oracle:+.3f} not positive"
+    assert null < oracle - 1.0, f"shuffled null {null:+.3f} not clearly worse than oracle {oracle:+.3f}"
+
+
+def test_sec64_constant_delta_is_a_noop():
+    """A constant δ̂ is a pure global shift and must carry NO credit. Before
+    deflation was allowed it scored −16.27; before the label-space restriction it
+    scored +15.54 and BEAT the oracle."""
+    from pcc.eval.setsize import setsize_translation_heldout_space as f
+    S, lab, qg, delta, held, _ = _heldout_fixture()
+    oracle = f(S, lab, 0.1, qg, delta, held)["gap"]
+    const = f(S, lab, 0.1, qg, np.full(len(delta), 0.116), held)["gap"]
+    shifted = f(S, lab, 0.1, qg, delta + 0.5, held)["gap"]
+    assert abs(const) < 0.5, f"constant δ̂ gap {const:+.3f} should be ~0"
+    assert abs(shifted - oracle) < 0.1, \
+        f"adding a constant changed the oracle result ({oracle:+.3f} -> {shifted:+.3f})"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
