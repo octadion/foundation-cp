@@ -65,6 +65,81 @@ def _percentile_ci(arr, alpha=0.05):
             "n": int(len(a))}
 
 
+def predictability_by_stratum(Phi, delta, feature_names, counts, *, reliability=None,
+                              n_splits=100, frac_train=0.5, lam=1.0, seed=42,
+                              n_strata=4, min_classes=20, **kw):
+    """Gate B/C computed WITHIN prevalence strata — the PRIMARY form of gate C
+    (Amendment 5, reports/protocol_amendments.md).
+
+    THE CONFOUND THIS BREAKS (measured on Pl@ntNet, reports/
+    descriptor_stability_findings.md): descriptor stability rises monotonically with
+    prevalence — 0.684 in the rarest quartile versus 0.922 in the densest, a spread
+    of **0.238** that no quota choice can remove, because the rare classes only hold
+    2–7 images. So geometry descriptors are *most accurate exactly where prevalence
+    is highest*. Pooled across all classes, "geometry beats log-prevalence" is
+    therefore confounded: geometry could look predictive because of
+    prevalence-linked descriptor quality rather than despite prevalence.
+
+    The standard remedy for a confound is to CONDITION on it. Within one prevalence
+    quartile, prevalence barely varies (so it cannot explain much) and descriptor
+    quality is roughly uniform (so the quality gradient is held fixed). Geometry that
+    still predicts δ_y inside strata is not a prevalence artefact.
+
+    Returns {stratum: predictability(...)} plus `summary` giving, per stratum, the
+    held-out R² and whether the full descriptor beat each ablation. Strata are never
+    pooled; a stratum with fewer than `min_classes` usable classes is reported as
+    skipped rather than silently merged.
+    """
+    from pcc.eval.tail import prevalence_strata
+
+    # Stratify over the classes that ACTUALLY HAVE a delta_y, not over every class.
+    # Measured on Pl@ntNet: matched n_cal=25 leaves ~152 classes, all necessarily
+    # head classes, so stratifying the full 1081 put 3 of 4 strata at zero usable
+    # classes and the stratification could not do its job. The retained classes still
+    # span 25..616 calibration samples, and descriptor quality varies across that
+    # range too, so stratifying WITHIN them tests the same confound.
+    delta_arr = np.asarray(delta, float)
+    have_delta = np.isfinite(delta_arr) & np.isfinite(np.asarray(Phi, float)).all(axis=1)
+    counts_masked = np.where(have_delta, np.asarray(counts), 0)
+    strata, unevaluable = prevalence_strata(counts_masked, n_strata, min_count=1)
+    out, summary = {}, {}
+    for name, cls in strata.items():
+        sub = np.asarray(cls, int)
+        d_sub = np.full(len(delta), np.nan)
+        d_sub[sub] = np.asarray(delta, float)[sub]
+        usable = int(np.sum(np.isfinite(d_sub) & np.isfinite(Phi).all(axis=1)))
+        if usable < min_classes:
+            out[name] = {"skipped": True, "n_usable_classes": usable,
+                         "reason": f"fewer than {min_classes} usable classes"}
+            continue
+        try:
+            res = predictability(Phi, d_sub, feature_names, reliability=reliability,
+                                 n_splits=n_splits, frac_train=frac_train, lam=lam,
+                                 seed=seed, **kw)
+        except ValueError as e:
+            out[name] = {"skipped": True, "n_usable_classes": usable, "reason": str(e)}
+            continue
+        res["n_classes_in_stratum"] = int(len(sub))
+        res["prevalence_range"] = [int(counts[sub].min()), int(counts[sub].max())]
+        out[name] = res
+        summary[name] = {
+            "n_classes": res["n_classes_used"],
+            "prevalence_range": res["prevalence_range"],
+            "r2_full": res["r2_by_predictor"]["full"]["mean"],
+            "r2_full_ci": [res["r2_by_predictor"]["full"]["ci_low"],
+                           res["r2_by_predictor"]["full"]["ci_high"]],
+            "gate_B_pass": res["gate_B_pass"],
+            "beats": {k: v["full_beats_it"] for k, v in res["gate_C_detail"].items()},
+        }
+    n_pass_B = sum(1 for v in summary.values() if v["gate_B_pass"])
+    ablations = sorted({a for v in summary.values() for a in v["beats"]})
+    n_beats = {a: sum(1 for v in summary.values() if v["beats"].get(a)) for a in ablations}
+    return {"by_stratum": out, "summary": summary,
+            "n_strata_reported": len(summary), "n_strata_gate_B_pass": n_pass_B,
+            "n_strata_full_beats_ablation": n_beats,
+            "unevaluable_classes": int(len(unevaluable))}
+
+
 def predictability(Phi, delta, feature_names, *, reliability=None,
                    n_splits=100, frac_train=0.5, lam=1.0, seed=42,
                    prevalence_col="log_prevalence", distance_col="cos_knn_1"):

@@ -161,23 +161,32 @@ def spearman_brown(r):
     return float(2 * r / (1 + r)) if (1 + r) != 0 else np.nan
 
 
-def _delta_on_subset(scores, classes, idx, n_classes, alpha, min_per_class):
+def _delta_on_subset(scores, classes, idx, n_classes, alpha, min_per_class,
+                     estimator="empirical"):
     """δ_y computed on a subset of sample indices; NaN for classes with fewer
-    than `min_per_class` samples in the subset."""
+    than `min_per_class` samples in the subset.
+
+    Uses the LEVEL-MATCHED estimator by default, for the same reason as Amendment 1:
+    the conformal quantile's level depends on n, so a small half-class group targets
+    a different percentile than the pooled group, and it returns `inf` outright when
+    n < ceil(1/α) − 1. On Pl@ntNet (cal median 2) that made gate A return NaN for
+    every split even though 523 classes were nominally eligible.
+    """
+    from pcc.eval.decomposition import group_quantile
     s = scores[idx]
     c = classes[idx]
-    q_global = conformal_quantile(s, alpha)
+    q_global = group_quantile(s, alpha, estimator)
     delta = np.full(n_classes, np.nan)
     for y in range(n_classes):
         m = c == y
         if m.sum() >= min_per_class:
-            delta[y] = conformal_quantile(s[m], alpha) - q_global
+            delta[y] = group_quantile(s[m], alpha, estimator) - q_global
     return delta
 
 
 def split_half_reliability(cal_scores_true, class_of_sample, n_classes, alpha, *,
                            n_splits=100, min_per_class=2, seed=42,
-                           group_of_class=None):
+                           group_of_class=None, estimator="empirical"):
     """Gate A (§6.2): split-half reliability of δ_y.
 
     For each of `n_splits` random splits, halve EACH class's samples, compute δ_y
@@ -196,6 +205,7 @@ def split_half_reliability(cal_scores_true, class_of_sample, n_classes, alpha, *
 
     overall = []
     per_group = {}
+    n_contrib = []
     for _ in range(n_splits):
         # split each class's samples into two halves
         h1_mask = np.zeros(len(class_of_sample), dtype=bool)
@@ -207,9 +217,13 @@ def split_half_reliability(cal_scores_true, class_of_sample, n_classes, alpha, *
             h1_mask[idx_y[: len(idx_y) // 2]] = True
         idx1 = np.where(h1_mask)[0]
         idx2 = np.where(~h1_mask)[0]
-        d1 = _delta_on_subset(cal_scores_true, class_of_sample, idx1, n_classes, alpha, min_per_class)
-        d2 = _delta_on_subset(cal_scores_true, class_of_sample, idx2, n_classes, alpha, min_per_class)
-        both = ~np.isnan(d1) & ~np.isnan(d2)
+        d1 = _delta_on_subset(cal_scores_true, class_of_sample, idx1, n_classes,
+                              alpha, min_per_class, estimator)
+        d2 = _delta_on_subset(cal_scores_true, class_of_sample, idx2, n_classes,
+                              alpha, min_per_class, estimator)
+        # isfinite, NOT ~isnan: conformal quantiles can be +inf for tiny classes and
+        # an inf slips through a NaN-only filter, turning the correlation into NaN.
+        both = np.isfinite(d1) & np.isfinite(d2)
         overall.append(spearman_brown(_pearson(d1[both], d2[both])))
 
         if group_of_class is not None:
@@ -218,11 +232,25 @@ def split_half_reliability(cal_scores_true, class_of_sample, n_classes, alpha, *
                 sel = both & (groups == g)
                 per_group.setdefault(g, []).append(
                     spearman_brown(_pearson(d1[sel], d2[sel])))
+        n_contrib.append(int(both.sum()))
 
     overall = np.array(overall, float)
-    out = {"reliability_mean": float(np.nanmean(overall)),
+    # How many classes could contribute at all: a split-half needs >= 2*min_per_class
+    # samples in the class. On Pl@ntNet the cal median is 2, so this can be tiny and
+    # the reliability then comes back NaN. Report the count so a NaN is diagnosable
+    # instead of mysterious.
+    counts_all = np.bincount(class_of_sample, minlength=n_classes)
+    n_eligible = int((counts_all >= 2 * min_per_class).sum())
+    n_valid = int(np.isfinite(overall).sum())
+    out = {"reliability_mean": float(np.nanmean(overall)) if n_valid else float("nan"),
            "reliability_splits": overall,
-           "n_splits": n_splits}
+           "n_splits": n_splits,
+           "n_classes_eligible": n_eligible,
+           "n_classes_contributing_mean": (float(np.mean(n_contrib)) if n_contrib else 0.0),
+           "n_splits_with_a_value": n_valid,
+           "undefined_reason": (None if n_valid else
+                                f"no split produced a correlation; only {n_eligible} "
+                                f"classes have >= {2*min_per_class} calibration samples")}
     if group_of_class is not None:
         out["by_group"] = {g: {"mean": float(np.nanmean(v)),
                                "splits": np.array(v, float)}

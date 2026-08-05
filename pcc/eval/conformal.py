@@ -49,3 +49,30 @@ def coverage(sets: np.ndarray, labels: np.ndarray) -> float:
 def set_sizes(sets: np.ndarray) -> np.ndarray:
     """Per-point prediction-set sizes."""
     return sets.sum(axis=1)
+
+
+def restrict_to_classes(score_matrix, labels, class_subset):
+    """Restrict a conformal problem to a subset of classes, as a self-contained
+    problem over that label space.
+
+    BOTH samples and score COLUMNS are restricted, and labels are remapped to
+    0..K_sub-1. Restricting only the samples would leave the prediction set spanning
+    the full label space, which creates an asymmetry that can be gamed: raising the
+    thresholds of exactly the classes whose coverage is measured buys coverage for
+    free. That confound is what made three §6.4 designs unusable
+    (reports/protocol_amendments.md, Amendment 4), so it is fixed here once.
+
+    Returns (S_sub, labels_sub, K_sub, class_ids) where `class_ids` maps the new
+    index back to the original class id.
+    """
+    class_ids = np.asarray(sorted(set(int(c) for c in class_subset)), dtype=int)
+    if len(class_ids) == 0:
+        raise ValueError("class_subset is empty")
+    labels = np.asarray(labels, int)
+    mask = np.isin(labels, class_ids)
+    if not mask.any():
+        raise ValueError("no samples belong to class_subset")
+    remap = {int(c): i for i, c in enumerate(class_ids)}
+    S_sub = np.asarray(score_matrix)[mask][:, class_ids]
+    labels_sub = np.array([remap[int(y)] for y in labels[mask]], dtype=int)
+    return S_sub, labels_sub, len(class_ids), class_ids

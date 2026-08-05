@@ -472,6 +472,71 @@ is what keeps this from becoming a post-hoc choice. Awaiting human confirmation.
 
 ---
 
+---
+
+## Amendment 5 — ADOPTED 2026-08-05 (human-approved): how Phase 1 runs when §3.3 is not met
+
+### The measurement that forced it
+
+`notebooks/02_descriptor_stability.ipynb` on Pl@ntNet (45,756 train images, 1081
+classes, bootstrap estimator):
+
+| | q=5 | q=10 | q=25 | q=50 |
+|---|---|---|---|---|
+| overall | 0.701 | 0.759 | 0.792 | **0.815** |
+| q0 tail (n=2–7) | 0.670 | 0.644 | 0.664 | **0.684** |
+| q1 (n=7–21) | 0.665 | 0.774 | 0.814 | 0.810 |
+| q2 (n=21–100) | 0.681 | 0.798 | 0.883 | 0.909 |
+| q3 head (n=100) | 0.649 | 0.770 | 0.879 | **0.922** |
+| **head − tail** | −0.021 | 0.126 | 0.215 | **+0.238** |
+
+Images per class: p10=3, **p50=21**, p75=100. `recommended_quota = None` — **§3.3 is
+NOT satisfied**, so a negative Phase-1 result is ambiguous by that section's own logic.
+
+**The tail is flat and cannot be fixed by any quota.** q0 sits at ~0.67 for every q,
+because those classes hold only 2–7 images: a bootstrap draw of 50 from 3 images just
+resamples the same 3. Tail stability is capped by `n_y`, not by the quota. Raising the
+quota would *widen* the spread (25% of classes were capped at our quota=100 and have
+more available), so it makes the contamination worse, not better.
+
+Only **4 features** reach ≥0.90 at q=50: logit_margin 0.945, cos_knn_5 0.916,
+cos_knn_10 0.909, cos_knn_1 0.907 — versus 9 on CIFAR-100. Covariance features are
+0.54–0.71, unsurprising when a 2048-dim covariance is estimated from a median of 21
+images.
+
+### Adopted protocol (three parts)
+
+**1. Asymmetric reading of gate B.** Descriptor noise ATTENUATES R²; it cannot
+manufacture predictability. So a gate-B **PASS remains meaningful** (the noise worked
+against us), while a gate-B **FAIL is recorded as ambiguous** per §3.3 rather than as
+evidence of no signal. This asymmetry must be stated wherever gate B is reported.
+
+**2. Gate C is computed WITHIN prevalence strata (PRIMARY); pooled is secondary.**
+Descriptor accuracy tracks prevalence, so pooled "geometry beats log-prevalence" is
+confounded. Conditioning on the confound is the standard remedy: inside one quartile
+prevalence barely varies and descriptor quality is roughly uniform.
+
+Validated on planted causal stories (`tests/test_stratified_gatec.py`):
+
+| δ_y driven by | pooled R² | strata where geometry beats prevalence |
+|---|---|---|
+| prevalence only | +0.935 | **0 / 4** ✓ correctly rejects |
+| geometry only | +0.928 | **4 / 4** ✓ correctly accepts |
+
+The pooled R² is nearly identical for the two stories (0.935 vs 0.928) — it carries
+almost no information about which is true. That is the justification for making the
+stratified form primary, and a test asserts it stays true.
+
+**3. Feature sets.** PRIMARY `stable` = the ≥0.90 features measured above (4 on
+Pl@ntNet); SECONDARY `full`. Both always reported, selection criterion never touches
+δ_y.
+
+**Reporting requirement.** The head−tail spread (**0.238**) must appear next to every
+gate-C conclusion, and every Phase-1 report must state that §3.3 was not met and that
+gate-B failures are consequently uninterpretable.
+
+---
+
 ## Status
 
 - Amendment 1: **implemented + tested** (`pcc/eval/decomposition.py:group_quantile`).
