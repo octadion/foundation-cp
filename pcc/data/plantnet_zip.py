@@ -19,6 +19,89 @@ import numpy as np
 ARCHIVE_PREFIX = "plantnet_300K/images"
 
 
+def archive_layout(zip_path: str, max_depth: int = 3) -> dict[str, int]:
+    """Directory prefixes present in the archive, with member counts.
+
+    Added because `unzip 'plantnet_300K/images/test/*'` exited 9 ("nothing matched")
+    while `images/val` extracted fine — i.e. the archive does not use the split
+    names that were assumed. Guessing again would waste another 30-minute cycle, so
+    the layout is read from the central directory instead (cheap, no decompression).
+    """
+    counts: dict[str, int] = {}
+    with zipfile.ZipFile(zip_path) as z:
+        for name in z.namelist():
+            if name.endswith("/"):
+                continue
+            parts = name.split("/")
+            for d in range(1, min(max_depth, len(parts) - 1) + 1):
+                counts["/".join(parts[:d]) + "/"] = counts.get("/".join(parts[:d]) + "/", 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def available_splits(zip_path: str) -> dict[str, int]:
+    """Split-directory name -> member count, for whatever prefix the archive uses.
+
+    Tries `plantnet_300K/images/<split>/` first, then `plantnet_300K/<split>/`.
+    """
+    layout = archive_layout(zip_path, max_depth=3)
+    for prefix in (f"{ARCHIVE_PREFIX}/", "plantnet_300K/"):
+        hits = {k[len(prefix):].rstrip("/"): v for k, v in layout.items()
+                if k.startswith(prefix) and k.count("/") == prefix.count("/") + 1}
+        hits.pop("", None)
+        if hits:
+            return hits
+    return {}
+
+
+def resolve_prefix(zip_path: str, split: str) -> str:
+    """The archive prefix that actually contains `split`, or raise with the layout."""
+    with zipfile.ZipFile(zip_path) as z:
+        names = z.namelist()
+    for prefix in (f"{ARCHIVE_PREFIX}/{split}/", f"plantnet_300K/{split}/"):
+        if any(n.startswith(prefix) for n in names):
+            return prefix
+    raise FileNotFoundError(
+        f"split {split!r} not found in {zip_path}. Available splits: "
+        f"{available_splits(zip_path)}")
+
+
+def ensure_split(zip_path: str, dest_root: str, split: str, *, quota: int | None = None,
+                 seed: int = 42, verbose: bool = True):
+    """Extract a whole split, or only `quota` images per class, via zipfile.
+
+    Replaces the previous `subprocess unzip` call: same idempotency as the quota
+    path (existing files skipped, interrupted extractions completed), a clear error
+    listing the real layout instead of `CalledProcessError: exit status 9`, and no
+    dependence on shell glob semantics.
+    """
+    prefix = resolve_prefix(zip_path, split)
+    with zipfile.ZipFile(zip_path) as z:
+        members = [n for n in z.namelist() if n.startswith(prefix) and not n.endswith("/")]
+    if quota is not None:
+        by_class: dict[str, list[str]] = {}
+        for n in members:
+            rest = n[len(prefix):]
+            if "/" not in rest:
+                continue
+            by_class.setdefault(rest.split("/", 1)[0], []).append(n)
+        rng = np.random.default_rng(seed)
+        picked = []
+        for cls in sorted(by_class):
+            files = sorted(by_class[cls])
+            k = min(quota, len(files))
+            idx = sorted(rng.choice(len(files), k, replace=False))
+            picked.extend(files[i] for i in idx)
+        members = sorted(picked)
+    else:
+        members = sorted(members)
+    if verbose:
+        print(f"  {split}: {len(members)} members (prefix {prefix})")
+    n_new, n_skip = extract_members(zip_path, members, dest_root,
+                                    verbose_every=5000 if verbose else 0)
+    return {"split": split, "prefix": prefix, "n_members": len(members),
+            "n_extracted": n_new, "n_skipped": n_skip, "quota": quota}
+
+
 def list_split_members(zip_path: str, split: str) -> dict[str, list[str]]:
     """Class folder name -> list of member paths, read from the central directory.
 
