@@ -229,12 +229,122 @@ reports the flip count and defers the verdict to G2's — now exact — distance
 | ~1e-4 | same model, small numerical/preprocessing drift |
 | >1e-2 | genuinely different model → §2.3.4 blocker |
 
-### Status: gate must be RE-RUN
+### Re-run with the fixed matcher (2026-08-04)
 
-The verdict recorded above (FAIL) was produced by a broken matcher and is void.
-Tolerances were NOT changed — G2's tolerance is still 1e-4 with a 1e-5 median
-requirement. What changed is that G2 now computes the quantity it always claimed to
-compute. Re-run required before any conclusion about the checkpoint.
+| criterion | before fix | **after fix** |
+|---|---|---|
+| G2 median L∞ | 0.5536 | **0.00149** |
+| G2 frac ≤ 1e-4 | 0.195 | 0.195 |
+| G1 / G4 | PASS | PASS (unchanged) |
+| G3 curve | 0.0040 | 0.0040 (unchanged) |
+
+The median dropped **370×**, confirming the pruning radius was the dominant cause.
+Against the interpretation table written BEFORE this run:
+
+- not ~1e-7 → not bit-identical
+- **1.5e-3 sits in the "same model, small numerical/preprocessing drift" band**
+- not >1e-2 → **not a different model**; §2.3.4 is NOT triggered
+
+So the checkpoint is almost certainly the right one, and what remains is a
+precision/preprocessing question rather than a provenance question. Verdict is
+still FAIL against the pre-registered thresholds (G2 median tol 1e-5, G3 tol 1e-3),
+and the thresholds have NOT been touched.
+
+### Leading hypothesis for the residual 1.5e-3: TF32
+
+Ampere/Ada GPUs (L4, A100) enable TF32 for matmul and convolution **by default**.
+TF32 carries only 10 mantissa bits ≈ **1e-3 relative precision** — the same order as
+the observed drift. Other candidates: JPEG decode differences across Pillow
+versions, and resize/antialias behaviour across torchvision versions.
+
+Added: `DISABLE_TF32` (default True) plus `cudnn.deterministic`, and a **precision
+probe** (cell 7d) that re-runs ~512 images with TF32 ON and OFF and reports the
+median distance to the released rows for each. If TF32-off collapses the median
+toward 1e-6, the checkpoint is confirmed identical and the gate passes cleanly. If
+both settings sit at ~1.5e-3, the cause is elsewhere and needs a human decision on
+what tolerance is defensible for "same model, different numerics".
+
+### TF32 ruled out; transform verified upstream (2026-08-04)
+
+Precision probe, 512 images, same model:
+
+| setting | median L∞ to released | frac ≤1e-4 | frac ≤1e-2 |
+|---|---|---|---|
+| TF32 **off** | 1.202e-03 | 0.207 | 0.826 |
+| TF32 **on** | 1.202e-03 | 0.207 | 0.826 |
+
+Identical to four significant figures, so **TF32 is not the cause**. The transform
+was also verified against the upstream source LTC copied from
+(`plantnet/PlantNet-300K/utils.py`): `Resize(size=image_size)` **scalar**,
+`CenterCrop(crop_size)`, `ToTensor`, `Normalize([0.485,0.456,0.406],
+[0.229,0.224,0.225])` — byte-for-byte what `pcc.data.ltc_datasets.test_transform`
+implements.
+
+### Diagnostic limit reached — what is established and what remains
+
+| established | evidence |
+|---|---|
+| same model weights | accuracy differs by 11 of 21,783; **83% of rows within 1e-2**; sorted row-max median diff 2.9e-4 |
+| same images, labels, class indexing | G4 exact on all 21,783 |
+| same transform code | verified against upstream PlantNet-300K |
+| not numerical precision | TF32 on/off identical |
+| **residual** | median L∞ **1.2e-3**; 21% within 1e-4, 83% within 1e-2 |
+
+Remaining plausible cause: **image decode / resize implementation** differences —
+Pillow/libjpeg version, or the Zenodo archive being a different JPEG encoding than
+the local copy LTC ran on. Neither is reproducible without their exact environment,
+and the continuum of distances (21% tight, 62% in [1e-4,1e-2], 17% worse) is what
+small per-image input perturbations look like.
+
+**§2.3.4 is NOT triggered**: this is not a different checkpoint.
+
+### DECISION (human-approved 2026-08-04): scores path = OURS throughout; gate stays FAIL
+
+**Decision 1 — data path (approved).** Calibration, δ_y, evaluation **and every
+baseline** are computed from OUR forward pass. The released LTC scores are used only
+as a cross-check when reproducing LTC's published numbers (§7). This removes the
+seam the hybrid path would have had, and it is what §7's per-backbone rule already
+demands ("baselines for backbone B recomputed on backbone B").
+
+**Decision 2 — gate verdict: left as FAIL, proceed under this written exception.**
+
+A "weights confirmation" replacement criterion was attempted and **abandoned
+because it could not be derived**. Simulation shows `frac ≤ 1e-2` does not
+discriminate the two hypotheses at the observed magnitudes:
+
+| case | median L∞ | frac ≤ 1e-2 |
+|---|---|---|
+| SAME weights, input noise 3e-2 | 1.20e-3 | 0.998 |
+| DIFFERENT weights (0.05 perturbation), matched accuracy | 1.67e-3 | 0.984 |
+
+Effectively inseparable. Any threshold chosen here would have been picked *after*
+seeing that the observed value was 0.826 — i.e. tuned to pass. Honest limitation of
+that simulation: it ran at accuracy 0.41 with diffuse probabilities, a different
+regime from the real data (0.795, concentrated), so it does not *prove* no such
+criterion exists — it only shows I have no principled derivation for one.
+
+So the gate **remains FAIL**, permanently and on the record, and the thresholds are
+untouched. Extraction proceeds under this narrow exception:
+
+1. Every Pl@ntNet result must state that scores are **ours**, not LTC's released
+   scores, and link this section.
+2. Bit-level comparison with LTC's published tables is **not claimed**. Baseline
+   reproduction (§7) is verified as *approximate* agreement on our score set, and
+   any deviation is reported.
+3. The evidence that the weights are nevertheless LTC's is the record above:
+   accuracy differing by 11 of 21,783 (0.18 σ), G4 exact, transform verified
+   against upstream, TF32 excluded.
+4. If the residual cause is ever identified (Pillow/libjpeg version, archive
+   re-encoding), re-run the gate and report both versions.
+
+This is deliberately not relabelled as a PASS. A reviewer should see that exact
+reproduction failed, what was ruled out, and why the conclusions do not depend on it.
+
+### Status
+
+Gate: **FAIL**, accepted under the written exception above. Extraction unblocked for
+Pl@ntNet with OUR scores. The earlier FAIL produced by the broken matcher is void;
+the FAIL recorded here is from the fixed matcher and is the standing result.
 
 ## Scope (per the revised cheap-first order — see release_audit.md)
 
