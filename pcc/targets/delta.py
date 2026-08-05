@@ -161,6 +161,55 @@ def spearman_brown(r):
     return float(2 * r / (1 + r)) if (1 + r) != 0 else np.nan
 
 
+def class_quantile_reliability(s_true, class_of_sample, n_classes, alpha, *,
+                               n_splits=30, min_per_class=4, seed=0,
+                               estimator="empirical"):
+    """Split-half reliability of the per-CLASS quantile q̂_y on a GIVEN score scale.
+
+    Same machinery as gate A, but applied to q̂_y rather than δ_y (they differ by the
+    pooled constant q̂_global, which does not affect a correlation across classes) and
+    exposed so Phase 0 can ask it of a TRANSFORMED score matrix.
+
+    Phase 0 (§5) needs exactly this question twice: does class-level structure exist
+    above sampling noise on the raw scores, and does it SURVIVE the best global
+    temperature? A global temperature cannot itself produce class-level variance, so
+    scoring it by class-level R² would rig the comparison; asking whether it REMOVES
+    the structure is the question a temperature can actually answer.
+    """
+    s_true = np.asarray(s_true, float)
+    lab = np.asarray(class_of_sample)
+    rng = np.random.default_rng(seed)
+    out = []
+    for _ in range(n_splits):
+        h1 = np.zeros(len(lab), dtype=bool)
+        for y in range(n_classes):
+            idx = np.where(lab == y)[0]
+            if len(idx) < 2 * min_per_class:
+                continue
+            rng.shuffle(idx)
+            h1[idx[: len(idx) // 2]] = True
+        q1 = _class_quantiles(s_true, lab, n_classes, alpha, h1, min_per_class,
+                              estimator)
+        q2 = _class_quantiles(s_true, lab, n_classes, alpha, ~h1, min_per_class,
+                              estimator)
+        m = np.isfinite(q1) & np.isfinite(q2)
+        out.append(spearman_brown(_pearson(q1[m], q2[m])))
+    out = np.array(out, float)
+    n_valid = int(np.isfinite(out).sum())
+    return {"reliability_mean": float(np.nanmean(out)) if n_valid else float("nan"),
+            "reliability_splits": out, "n_splits_with_a_value": n_valid}
+
+
+def _class_quantiles(s_true, lab, n_classes, alpha, mask, min_per_class, estimator):
+    from pcc.eval.decomposition import group_quantile
+    q = np.full(n_classes, np.nan)
+    for y in range(n_classes):
+        v = s_true[mask & (lab == y)]
+        if len(v) >= min_per_class:
+            q[y] = group_quantile(v, alpha, estimator)
+    return q
+
+
 def _delta_on_subset(scores, classes, idx, n_classes, alpha, min_per_class,
                      estimator="empirical"):
     """δ_y computed on a subset of sample indices; NaN for classes with fewer

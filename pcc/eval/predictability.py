@@ -129,6 +129,9 @@ def predictability_by_stratum(Phi, delta, feature_names, counts, *, reliability=
             "r2_full_ci": [res["r2_by_predictor"]["full"]["ci_low"],
                            res["r2_by_predictor"]["full"]["ci_high"]],
             "gate_B_pass": res["gate_B_pass"],
+            "underpowered": res["underpowered"],
+            "n_train_classes": res["n_train_classes"],
+            "n_features_full": res["n_features_full"],
             "beats": {k: v["full_beats_it"] for k, v in res["gate_C_detail"].items()},
         }
     n_pass_B = sum(1 for v in summary.values() if v["gate_B_pass"])
@@ -142,7 +145,9 @@ def predictability_by_stratum(Phi, delta, feature_names, counts, *, reliability=
 
 def predictability(Phi, delta, feature_names, *, reliability=None,
                    n_splits=100, frac_train=0.5, lam=1.0, seed=42,
-                   prevalence_col="log_prevalence", distance_col="cos_knn_1"):
+                   feature_subset=None,
+                   prevalence_col="log_prevalence",
+                   distance_col=("cos_knn_5", "cos_knn_1", "cos_knn_10")):
     """Class-level split predictability of δ_y with gate B/C summaries.
 
     Only classes with a finite δ_y and finite descriptor row are used. For each
@@ -150,17 +155,43 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
     evaluate held-out R² for the FULL descriptor and for the ablation predictors
     (log-prevalence only, nearest-class-distance only, both). Differences are
     paired within split.
+
+    `feature_subset` (names) selects the columns of the "full" model. **Always pass
+    the COMPLETE Phi and feature_names and restrict via this argument**, never a
+    pre-sliced Phi. Gate C's ablations are BASELINES, not features of the full model:
+    slicing Phi down to the stable set ['cos_knn_5', 'logit_margin'] removed both
+    `log_prevalence` and the distance column, so `ablations` came back empty and
+    **gate C silently returned None for the primary feature set** -- the gate most
+    likely to fail was never run (observed on Pl@ntNet, 2026-08-05).
+
+    `distance_col` is a tuple of CANDIDATES, first present wins, so the distance
+    baseline survives a stability screen that drops `cos_knn_1`.
+
+    Also returns `n_train_classes`, `n_features_full` and `underpowered`. A ridge with
+    p features fit on n_train classes cannot be compared fairly against a 1-2 feature
+    baseline when n_train is a small multiple of p: on Pl@ntNet the 15-feature `full`
+    model had 19 training classes per stratum and scored NEGATIVE held-out R² while the
+    2-feature stable set reached +0.45. `underpowered` marks that regime so a FAIL
+    there is never read as evidence of no signal.
     """
     Phi = np.asarray(Phi, float)
     delta = np.asarray(delta, float)
-    valid = np.where(np.isfinite(delta) & np.isfinite(Phi).all(axis=1))[0]
-    if len(valid) < 10:
-        raise ValueError(f"too few usable classes ({len(valid)}) for predictability")
-
     names = list(feature_names)
     col = {n: i for i, n in enumerate(names)}
+
+    if feature_subset is None:
+        full_cols = list(range(Phi.shape[1]))
+    else:
+        missing = [n for n in feature_subset if n not in col]
+        if missing:
+            raise ValueError(f"feature_subset names not in feature_names: {missing}")
+        full_cols = [col[n] for n in feature_subset]
+    if not full_cols:
+        raise ValueError("feature_subset selected no columns")
+
     prev_i = col.get(prevalence_col)
-    dist_i = col.get(distance_col)
+    dist_name = next((n for n in np.atleast_1d(distance_col) if n in col), None)
+    dist_i = col.get(dist_name) if dist_name is not None else None
     ablations = {}
     if prev_i is not None:
         ablations["log_prevalence_only"] = [prev_i]
@@ -169,9 +200,17 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
     if prev_i is not None and dist_i is not None:
         ablations["prevalence+distance"] = [prev_i, dist_i]
 
+    # A class must have finite values in every column any predictor will touch --
+    # including the ablation columns, which may sit outside `feature_subset`.
+    used = sorted(set(full_cols) | {i for c in ablations.values() for i in c})
+    valid = np.where(np.isfinite(delta) & np.isfinite(Phi[:, used]).all(axis=1))[0]
+    if len(valid) < 10:
+        raise ValueError(f"too few usable classes ({len(valid)}) for predictability")
+
     rng = np.random.default_rng(seed)
-    predictors = {"full": None, **ablations}
+    predictors = {"full": full_cols, **ablations}
     r2 = {k: [] for k in predictors}
+    n_tr = 0
 
     for _ in range(n_splits):
         perm = rng.permutation(valid)
@@ -179,9 +218,10 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
         tr, te = perm[:cut], perm[cut:]
         if len(te) < 2:
             continue
+        n_tr = len(tr)
         for name, cols in predictors.items():
-            Xtr = Phi[tr] if cols is None else Phi[tr][:, cols]
-            Xte = Phi[te] if cols is None else Phi[te][:, cols]
+            Xtr = Phi[tr][:, cols]
+            Xte = Phi[te][:, cols]
             model = ridge_fit(Xtr, delta[tr], lam)
             pred = ridge_predict(model, Xte)
             r2[name].append(r2_score(delta[te], pred))
@@ -213,6 +253,10 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
 
     return {
         "n_classes_used": int(len(valid)),
+        "n_train_classes": int(n_tr),
+        "n_features_full": int(len(full_cols)),
+        "underpowered": bool(n_tr < 3 * len(full_cols)),
+        "distance_col_used": dist_name,
         "r2_by_predictor": summ,
         "reliability_ceiling": reliability,
         "normalized_full_r2": norm,

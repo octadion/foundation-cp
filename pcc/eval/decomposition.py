@@ -1,17 +1,26 @@
-"""Phase 0 (§5) — decompose the efficiency gap on REAL logits.
+"""Phase 0 (§5) — where does the threshold structure live, on REAL logits?
 
-Measures how much of the average-set-size gap is closed, SEPARATELY, by:
-  (1) a single global temperature,
-  (2) per-sample energy reweighting (free energy of the pre-softmax logits),
-  (3) a per-class offset fit on ABUNDANT data (not a realistic budget).
+Three candidate locations for the structure, all fit on CAL, all scored on EVAL:
+  (1) a single global temperature      — global miscalibration,
+  (2) per-sample energy bins           — per-sample difficulty (free energy),
+  (3) a per-class offset               — the class level (the §5 hypothesis).
 
-Pass criterion (§5): (3) must close a gap SUBSTANTIALLY larger than (1) and (2),
-with non-overlapping CIs. If not, "structure lives at the class level" does not
-hold on real data — STOP, do not enter Phase 1 (§5).
+**The verdict comes from `phase0_explain_class_level` (Amendment 6).** It asks which
+mechanism EXPLAINS the class-level conformal quantile q*_y, via out-of-sample R²
+across classes. Pass requires all three: class-level structure exists above sampling
+noise, it survives EVERY global temperature, and `class` beats every energy rival with
+non-overlapping CIs.
 
-Why this exists: the motivating evidence came from synthetic injection-and-
-recovery, which is circular. This must replicate on real logits (ImageNet,
-iNaturalist) first.
+`phase0_cc_decomposition` (the earlier set-size criterion, Amendment 3) is retained
+ONLY as a deployment-cost report and **must not be used to rank mechanisms** — it
+charges a mechanism for its threshold variance regardless of source, and named
+`temperature` the winner in 4 of 4 planted worlds. See that function's docstring and
+reports/protocol_amendments.md#amendment-6.
+
+Why this module exists: the motivating evidence came from synthetic injection-and-
+recovery, which is circular. It must replicate on real logits. For the same reason the
+measurement itself is validated against planted worlds before any verdict is read —
+pcc/tests/test_phase0_explain.py.
 """
 
 from __future__ import annotations
@@ -266,19 +275,30 @@ def min_size_at_worst_class_coverage(score_matrix, labels, n_classes, thresholds
 def phase0_cc_decomposition(logits, labels, n_classes, alpha, cal_idx, eval_idx, *,
                             bin_grid=(2, 10, 50), estimator="empirical",
                             target=None):
-    """ADOPTED §5 measurement (Amendment 3): average set size required to reach
-    worst-class coverage >= 1-alpha, for each mechanism, with every per-group
-    correction estimated OUT OF SAMPLE (on cal, evaluated on eval).
+    """SECONDARY deployment-cost report. **This function CANNOT answer §5** and its
+    ranking of mechanisms must never be used as the Phase-0 verdict (Amendment 6).
 
-    Out-of-sample estimation is essential: in-sample per-class thresholds win even
-    when no class structure exists (+8.77 measured), because per-class flexibility
-    absorbs noise. Verified discrimination (abundant data): structure present
-    +44.83, structure absent -0.32.
+    It reports the average set size each mechanism needs to reach worst-class coverage
+    >= 1-alpha, with every per-group correction estimated OUT OF SAMPLE. As a statement
+    of "what does class-conditional coverage cost at this calibration budget" it is
+    meaningful. As a comparison BETWEEN mechanisms it is invalid, because reaching the
+    target by UNIFORM inflation charges a mechanism for its threshold VARIANCE
+    regardless of whether that variance is real structure or estimation noise:
+
+      - the classes still short after class-adaptation are those with the LOWEST
+        thresholds, so a global additive repair over-inflates the entire vector;
+      - with s = 1 - p and a weak model nearly every wrong label sits in [0.98, 1.0],
+        so set size is near-vertical in the threshold (+0.0117 inflation took avg set
+        size from 13.6 to 55.7);
+      - consequently nested capacity degrades monotonically (energy_b2 -47.2,
+        b10 -67.4, b50 -74.7 on real Pl@ntNet logits), and on synthetic worlds with a
+        planted mechanism it named `temperature` the winner in 4 of 4 worlds --
+        including the world whose only structure was per-class difficulty.
+
+    Use `phase0_explain_class_level` for the §5 verdict.
 
     Returns a dict mechanism -> {avg_set_size, worst_coverage, inflation}, plus
-    `gap_vs_global` per mechanism (global_size - mechanism_size; POSITIVE = the
-    mechanism is cheaper). §5 passes if `class` has the largest gap with
-    non-overlapping CIs.
+    `gap_vs_global` per mechanism (global_size - mechanism_size).
     """
     target = (1 - alpha) if target is None else target
     S = thr_scores_from_softmax(temperature_softmax(logits, 1.0))
@@ -341,6 +361,166 @@ def phase0_cc_decomposition(logits, labels, n_classes, alpha, cal_idx, eval_idx,
     for k in out:
         out[k]["gap_vs_global"] = g - out[k]["avg_set_size"]
     return out
+
+
+def phase0_explain_class_level(logits, labels, n_classes, alpha, cal_idx, eval_idx, *,
+                               bin_grid=(2, 10, 50), min_eval=20,
+                               estimator="empirical", Ts=None, T_scan=None,
+                               reliability_splits=30, T_scan_splits=10):
+    """ADOPTED §5 measurement (Amendment 6): which mechanism EXPLAINS the class-level
+    quantile? Replaces the set-size criterion, which was shown to be unable to answer
+    §5 at all.
+
+    WHY THE SET-SIZE CRITERION WAS ABANDONED (all three legs verified 2026-08-05):
+
+      1. Nested capacity degrades monotonically on real Pl@ntNet logits:
+         energy_b2 -47.2, energy_b10 -67.4, energy_b50 -74.7. b50 can represent
+         everything b2 can, so a metric where extra capacity always loses is not
+         measuring where structure lives.
+      2. On synthetic worlds with a PLANTED mechanism it named `temperature` the
+         winner in 4 of 4 worlds -- including the world where per-class difficulty
+         was the only structure present. Zero discriminating power.
+      3. Mechanically: reaching worst-class coverage by UNIFORM inflation punishes
+         threshold VARIANCE regardless of its source. The classes still short after
+         class-adaptation are the ones with the LOWEST thresholds, so repairing them
+         with a global constant over-inflates the whole vector. Measured: a +0.0117
+         inflation took avg set size from 13.6 to 55.7, because with s = 1 - p and a
+         weak model nearly every wrong label sits in [0.98, 1.0].
+
+    Set size confounds §5 with score saturation, the repair operator, and the
+    conditional-vs-marginal efficiency tradeoff -- none of which §5 asks about.
+    `phase0_cc_decomposition` is retained as a SECONDARY deployment-cost report.
+
+    WHAT THIS MEASURES INSTEAD. Target: q*_y, the (1-alpha) quantile of class y's
+    true-label scores on EVAL. Every mechanism is fit on CAL and predicts q*_y:
+
+        global      -> a constant                (no class-level variance, by design)
+        energy_bK   -> class-mean of the per-sample thresholds it would assign
+        class       -> the per-class q_hat fit on CAL
+
+    R2 is taken across classes, out of sample. A mechanism whose extra parameters are
+    noise earns NEGATIVE R2 (measured: energy_b50 -> -33.3 in the energy world), so
+    capacity is punished rather than rewarded. The rival is NOT crippled: when class
+    difficulty is real it also shows up in per-sample confidence, so energy_b10
+    reached +0.594 against class's +0.896 -- a genuine competitor.
+
+    Temperature is judged by the question it can actually answer: does the best global
+    temperature REMOVE the class-level structure? -- via split-half reliability of q̂_y
+    on temperature-rescaled scores.
+
+    Validated 4/4 on planted worlds {class, global, energy, none}.
+
+    Returns r2 per mechanism, sd of the target (the §5 discriminant: 0.0618 when class
+    structure was planted vs 0.0017 when only global miscalibration was),
+    reliability on the identity and best-temperature scales, and `best_T_at_boundary`
+    so a temperature search pinned at the grid edge is never read as a fitted value.
+    """
+    from pcc.targets.delta import class_quantile_reliability
+
+    labels = np.asarray(labels)
+    S = thr_scores_from_softmax(temperature_softmax(logits, 1.0))
+    cal_true, cal_lab = S[cal_idx, labels[cal_idx]], labels[cal_idx]
+    ev_true, ev_lab = S[eval_idx, labels[eval_idx]], labels[eval_idx]
+    E = free_energy(logits)
+    q_global = group_quantile(cal_true, alpha, estimator)
+
+    scored, target = [], []
+    for y in range(n_classes):
+        m = ev_lab == y
+        if m.sum() >= min_eval:
+            scored.append(y)
+            target.append(group_quantile(ev_true[m], alpha, estimator))
+    scored = np.asarray(scored, int)
+    target = np.asarray(target, float)
+    if len(scored) < 10:
+        raise ValueError(f"only {len(scored)} classes have >= {min_eval} eval samples; "
+                         "cannot measure class-level explanation")
+
+    preds = {"global": np.full(len(scored), q_global)}
+    for b in bin_grid:
+        edges = np.quantile(E[cal_idx], np.linspace(0, 1, b + 1))
+        edges[0], edges[-1] = -np.inf, np.inf
+        bin_of = np.clip(np.digitize(E, edges) - 1, 0, b - 1)
+        thr_b = np.full(b, q_global)
+        for j in range(b):
+            m = bin_of[cal_idx] == j
+            if m.any():
+                qj = group_quantile(cal_true[m], alpha, estimator)
+                if np.isfinite(qj):
+                    thr_b[j] = qj
+        ev_bins = bin_of[eval_idx]
+        preds[f"energy_b{b}"] = np.array(
+            [thr_b[ev_bins[ev_lab == y]].mean() for y in scored])
+
+    q_c = np.full(n_classes, q_global)
+    for y in range(n_classes):
+        m = cal_lab == y
+        if m.any():
+            v = group_quantile(cal_true[m], alpha, estimator)
+            if np.isfinite(v):
+                q_c[y] = v
+    preds["class"] = q_c[scored]
+
+    r2 = {k: _r2_across_classes(target, v) for k, v in preds.items()}
+
+    Ts = np.linspace(0.25, 4.0, 31) if Ts is None else np.asarray(Ts, float)
+    best_T, best_sz = 1.0, np.inf
+    for T in Ts:
+        St = thr_scores_from_softmax(temperature_softmax(logits, T))
+        qt = group_quantile(St[cal_idx, cal_lab], alpha, estimator)
+        sz = float((St[cal_idx] <= qt).sum(axis=1).mean())
+        if sz < best_sz:
+            best_T, best_sz = T, sz
+    rel_id = class_quantile_reliability(cal_true, cal_lab, n_classes, alpha,
+                                        n_splits=reliability_splits,
+                                        estimator=estimator)
+
+    # §5's alternative hypothesis is "this is only global miscalibration". Refuting it
+    # properly requires that NO global temperature removes the class-level structure --
+    # not merely that the efficiency-optimal one does not. So scan a coarse grid and
+    # take the WORST (minimum) reliability; that is the number the verdict uses. Scanning
+    # matters because the efficiency-optimal T is frequently pinned at a grid edge, where
+    # it is not a fitted value at all.
+    T_scan = np.geomspace(0.2, 5.0, 7) if T_scan is None else np.asarray(T_scan, float)
+    rel_by_T = {}
+    for T in T_scan:
+        St = thr_scores_from_softmax(temperature_softmax(logits, T))
+        # fewer split-half reps than the identity estimate: the scan only needs to
+        # locate the WORST temperature, and reliability is nearly flat in T (measured
+        # 0.973-0.985 across T in [0.2, 5.0]), so precision here is not the bottleneck.
+        rel_by_T[float(T)] = class_quantile_reliability(
+            St[cal_idx, cal_lab], cal_lab, n_classes, alpha,
+            n_splits=T_scan_splits, estimator=estimator)["reliability_mean"]
+    finite = {k: v for k, v in rel_by_T.items() if np.isfinite(v)}
+    T_at_min = min(finite, key=finite.get) if finite else float("nan")
+    rel_min_T = finite[T_at_min] if finite else float("nan")
+    St = thr_scores_from_softmax(temperature_softmax(logits, best_T))
+    rel_T = class_quantile_reliability(St[cal_idx, cal_lab], cal_lab, n_classes, alpha,
+                                       n_splits=reliability_splits,
+                                       estimator=estimator)
+
+    rivals = {k: v for k, v in r2.items() if k not in ("class", "global")}
+    return {"r2": r2, "n_classes_scored": int(len(scored)),
+            "target_sd": float(target.std()), "q_global": float(q_global),
+            "best_T": float(best_T),
+            "best_T_at_boundary": bool(best_T in (float(Ts[0]), float(Ts[-1]))),
+            "reliability_identity": rel_id["reliability_mean"],
+            "reliability_after_T": rel_T["reliability_mean"],
+            "reliability_min_over_T": rel_min_T,
+            "T_at_min_reliability": float(T_at_min),
+            "reliability_by_T": rel_by_T,
+            "class_beats_rivals": bool(np.isfinite(r2["class"]) and rivals and
+                                       r2["class"] > max(rivals.values())),
+            "best_rival": (max(rivals, key=rivals.get) if rivals else None)}
+
+
+def _r2_across_classes(y, p):
+    y = np.asarray(y, float)
+    p = np.asarray(p, float)
+    ss = np.sum((y - y.mean()) ** 2)
+    if ss == 0:
+        return np.nan
+    return float(1 - np.sum((y - p) ** 2) / ss)
 
 
 def phase0_energy_bin_sweep(logits, score_matrix, labels, alpha, cal_idx, eval_idx,

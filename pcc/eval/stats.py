@@ -13,15 +13,32 @@ import numpy as np
 
 
 def mean_ci(values, alpha: float = 0.05):
-    """Mean and normal-approx CI (SE-based) over split repetitions."""
+    """Mean and normal-approx CI (SE-based) over split repetitions.
+
+    NaN-AWARE, and that matters: a single non-finite repetition used to turn the whole
+    CI into NaN, which is how `gate A: nan` reached a report instead of a diagnosable
+    number. Non-finite entries are dropped and counted, so the loss is visible:
+    `n` is how many were supplied, `n_finite` how many were used.
+
+    Uses `statistics.NormalDist` rather than `scipy.stats.norm` — one normal quantile is
+    not worth a hard scipy dependency, and scipy is absent in some environments this
+    repo is expected to run in.
+    """
+    from statistics import NormalDist
+
     v = np.asarray(values, dtype=float)
     n = len(v)
-    mean = float(v.mean())
-    se = float(v.std(ddof=1) / np.sqrt(n)) if n > 1 else float("nan")
-    from scipy.stats import norm
-
-    z = norm.ppf(1 - alpha / 2)
-    return {"mean": mean, "se": se, "ci_low": mean - z * se, "ci_high": mean + z * se, "n": n}
+    f = v[np.isfinite(v)]
+    if len(f) == 0:
+        return {"mean": float("nan"), "se": float("nan"), "ci_low": float("nan"),
+                "ci_high": float("nan"), "n": n, "n_finite": 0}
+    mean = float(f.mean())
+    se = float(f.std(ddof=1) / np.sqrt(len(f))) if len(f) > 1 else float("nan")
+    z = NormalDist().inv_cdf(1 - alpha / 2)
+    lo = mean - z * se if np.isfinite(se) else float("nan")
+    hi = mean + z * se if np.isfinite(se) else float("nan")
+    return {"mean": mean, "se": se, "ci_low": lo, "ci_high": hi,
+            "n": n, "n_finite": int(len(f))}
 
 
 def paired_bootstrap(a, b, *, n_boot: int = 10_000, seed: int = 42, alpha: float = 0.05):

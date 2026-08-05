@@ -537,14 +537,144 @@ gate-B failures are consequently uninterpretable.
 
 ---
 
+## Amendment 6 — the Phase-0 criterion cannot answer §5; replace it (2026-08-05)
+
+**Status: ADOPTED, implemented, validated 4/4 on planted worlds.**
+
+### What happened
+
+Phase 0 on Pl@ntNet returned FAIL with every mechanism except `temperature` strongly
+negative (`class` −54.8, `energy_b50` −74.7 at α=0.1). Before reading that as "the
+structure does not live at the class level", the metric itself was audited. It fails.
+
+### Three independent legs of evidence
+
+1. **Nested capacity degrades monotonically** on the real logits:
+   `energy_b2 −47.2 → energy_b10 −67.4 → energy_b50 −74.7`. The energy family is
+   nested — b50 can represent everything b2 can — so a criterion in which extra
+   capacity systematically loses is not measuring where structure lives.
+
+2. **Zero discriminating power on planted worlds.** Four synthetic worlds, each with
+   exactly one planted mechanism {class, global, energy, none}. The criterion named
+   `temperature` the winner in **4 of 4**, including the world whose only structure
+   was per-class difficulty. A macro-coverage variant with free deflation also scored
+   2/4 and also failed the class world.
+
+3. **The mechanism, arithmetically.** Reaching worst-class coverage by **uniform
+   inflation** charges a mechanism for its threshold **variance**, whatever its source:
+   - the classes still short after class-adaptation are exactly those with the
+     *lowest* thresholds, so a global additive repair over-inflates the whole vector
+     (`class` needed inflation 0.0492 vs `global` 0.0117);
+   - with `s = 1 − p` and a weak model nearly every wrong label sits in [0.98, 1.0],
+     so set size is near-vertical in the threshold: **+0.0117 inflation took average
+     set size from 13.6 to 55.7**.
+
+   So cost ∝ Var(δ̂) = Var(δ true) + Var(noise), and parameter count enters directly.
+   `global` has zero opportunities to undershoot; `class` has K.
+
+The `class` mechanism is *perfectly aligned with the criterion's own requirement*
+(the criterion is per-class, the mechanism is indexed per-class) and still lost to
+doing nothing. A criterion whose best-matched mechanism loses is measuring something
+else.
+
+### Why not patch it a fourth time
+
+Amendments 1 and 3 and the four §6.4 designs were all patches to a set-size criterion.
+Set size conflates §5's question with three things §5 never asked about: score
+saturation, the choice of repair operator, and the conditional-vs-marginal efficiency
+tradeoff (equalizing coverage across classes *always* costs average set size — that is
+Jensen, not a finding). No patch removes those.
+
+### The replacement
+
+§5 asks **where the threshold structure is located**. That is a question about
+explaining per-class quantiles. Target `q*_y` = the (1−α) quantile of class y's
+true-label scores on EVAL; every mechanism is fit on CAL and predicts it:
+
+| mechanism | class-level prediction |
+|---|---|
+| `global` | a constant (no class-level variance by construction) |
+| `energy_bK` | class-mean of the per-sample thresholds it assigns |
+| `class` | the per-class q̂ fit on CAL |
+
+R² is taken **across classes, out of sample**, so a mechanism whose extra parameters
+are noise earns **negative** R² (measured: `energy_b50 → −35.8` in the no-structure
+world). Capacity is punished, not rewarded.
+
+**Temperature is judged by the question it can actually answer.** A global temperature
+cannot produce class-level variance, so scoring it by class-level R² would rig the
+comparison. Instead: does the best global temperature **remove** the class-level
+structure? — measured as split-half reliability of q̂_y on temperature-rescaled scores
+(`targets/delta.py:class_quantile_reliability`).
+
+**The rival is not crippled.** When class difficulty is real it also shows up in
+per-sample confidence, so `energy_b10` reached **+0.523** against `class`'s **+0.969**
+in the planted-class world. `class` must beat a genuine competitor.
+
+### Pass criterion (pre-registered)
+
+Class-level structure exists above noise (reliability > 0.30) **AND** survives the best
+global temperature (reliability after T > 0.30) **AND** `class` R² exceeds every
+`energy_bK` rival, with non-overlapping CIs across splits.
+
+Reported alongside: `target_sd` = sd(q*_y), the §5 discriminant — **0.0839** when class
+structure was planted vs **0.0020** when only global miscalibration was.
+
+### Validation (mandatory before any Phase-0 verdict is read)
+
+`pcc/tests/test_phase0_explain.py` — recovers the planted mechanism in **4/4** worlds,
+confirms capacity is punished, and is the pre-registration guard: the criterion it
+replaced scored 0/1 on the class world.
+
+`phase0_cc_decomposition` is **retained as a SECONDARY deployment-cost report** — "what
+does class-conditional coverage cost at this calibration budget" is a real question —
+with a docstring stating that its ranking of mechanisms must never be the verdict.
+
+---
+
+## Amendment 7 — gate C was never run for the primary feature set (2026-08-05)
+
+**Status: ADOPTED, implemented, tested.** A plain defect, not a judgement call.
+
+Amendment 5 made the stability-screened set PRIMARY. On Pl@ntNet that set is
+`['cos_knn_5', 'logit_margin']` — it contains **neither** `log_prevalence` **nor**
+`cos_knn_1`. `predictability()` resolved its ablation columns from the Phi it was
+handed, and notebook 04 handed it a **pre-sliced** Phi. So `ablations` came back empty,
+`gate_C_pass` became `None`, and **the gate most likely to fail was silently never
+run** for the primary feature set (`gate_C_primary_pass: null` in the report).
+
+**Fix.** Ablations are BASELINES, not features of the full model. `predictability()`
+now takes the complete `Phi` plus `feature_subset` naming the full model's columns, and
+always resolves ablations against the complete matrix. `distance_col` became a tuple of
+candidates (`cos_knn_5`, `cos_knn_1`, `cos_knn_10`), first present wins, so the distance
+baseline survives a stability screen that drops `cos_knn_1`.
+
+**Also added: an `underpowered` flag.** The stratified `full` result had **15 features
+fit on 19 training classes** per stratum and scored negative held-out R² (−0.015,
++0.179, −0.105, −0.266) while the 2-feature stable set reached **+0.453** in the rarest
+stratum. Comparing a 15-parameter model against 1–2-parameter baselines at n_train=19
+is not a capacity-fair test, so "geometry beats prevalence in 0/4 strata" was
+uninformative for `full`. `underpowered` (n_train < 3p) now marks that regime, and a
+FAIL inside it may not be reported as evidence of no signal — the same asymmetry
+Amendment 5 established for descriptor noise.
+
+---
+
 ## Status
 
 - Amendment 1: **implemented + tested** (`pcc/eval/decomposition.py:group_quantile`).
 - Amendment 2: **implemented + tested** (`targets/delta.py:delta_y_matched_n`,
   `:prevalence_null`), wired into `notebooks/04_phase1_gate.ipynb`. `n_cal` still
   needs a **human decision for Pl@ntNet** (the head/tail trade-off).
-- Amendment 3: **adopted + implemented + tested**
-  (`decomposition.phase0_cc_decomposition`), wired into `notebooks/03`.
+- Amendment 3: **SUPERSEDED by Amendment 6.** `phase0_cc_decomposition` is retained
+  only as a secondary deployment-cost report; it cannot rank mechanisms.
+- Amendment 4: implemented (`eval/setsize.py`, held-out label space + deflation).
+- Amendment 5: implemented (`predictability_by_stratum`), wired into `notebooks/04`.
+- Amendment 6: **adopted + implemented + validated 4/4**
+  (`decomposition.phase0_explain_class_level`, `targets/delta.py:class_quantile_reliability`,
+  `pcc/tests/test_phase0_explain.py`), wired into `notebooks/03`.
+- Amendment 7: **adopted + implemented + tested** (`predictability(feature_subset=...)`,
+  ablations always resolved from the complete Phi; `underpowered` flag).
 - `δ_y` as defined in §6.1 (conformal quantiles) is retained as the **deployment**
   target definition; these amendments concern how it is **measured** for the
   structure and predictability questions.
