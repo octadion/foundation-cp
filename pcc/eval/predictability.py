@@ -130,6 +130,9 @@ def predictability_by_stratum(Phi, delta, feature_names, counts, *, reliability=
                            res["r2_by_predictor"]["full"]["ci_high"]],
             "gate_B_pass": res["gate_B_pass"],
             "underpowered": res["underpowered"],
+            "gate_C_pass": res["gate_C_pass"],
+            "gate_C_pass_prereg": res["gate_C_pass_prereg"],
+            "distance_baseline_is_nested_in_full": res["distance_baseline_is_nested_in_full"],
             "n_train_classes": res["n_train_classes"],
             "n_features_full": res["n_features_full"],
             "beats": {k: v["full_beats_it"] for k, v in res["gate_C_detail"].items()},
@@ -190,7 +193,8 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
         raise ValueError("feature_subset selected no columns")
 
     prev_i = col.get(prevalence_col)
-    dist_name = next((n for n in np.atleast_1d(distance_col) if n in col), None)
+    cands = [n for n in np.atleast_1d(distance_col) if n in col]
+    dist_name = cands[0] if cands else None
     dist_i = col.get(dist_name) if dist_name is not None else None
     ablations = {}
     if prev_i is not None:
@@ -199,6 +203,28 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
         ablations["distance_only"] = [dist_i]
     if prev_i is not None and dist_i is not None:
         ablations["prevalence+distance"] = [prev_i, dist_i]
+
+    # NESTING WARNING, and a second distance baseline because of it.
+    # The stability screen makes the preferred distance baseline `cos_knn_5`, which on
+    # Pl@ntNet is ALSO one of the two features in the PRIMARY feature set. The ablation
+    # is then a nested SUBMODEL of the full model, so "full beats distance_only" tests
+    # "does logit_margin add anything beyond cos_knn_5" -- strictly HARDER than the
+    # pre-registered §6.5C question ("does our geometry beat a Fargion-style
+    # nearest-class-distance baseline"). A FAIL under a harder-than-registered criterion
+    # is not the same finding as a FAIL under the registered one, so the pre-registered
+    # baseline is computed alongside and both verdicts are returned.
+    nested = bool(dist_i is not None and dist_i in full_cols)
+    prereg_name = None
+    PREREG = ("distance_only_prereg", "prevalence+distance_prereg")
+    if nested:
+        # Only build the parallel baseline when the primary one is actually nested;
+        # otherwise the two questions coincide and a duplicate would just confuse.
+        prereg_name = next((n for n in np.atleast_1d(distance_col)[1:]
+                            if n in col and col[n] not in full_cols), None)
+        if prereg_name is not None:
+            ablations["distance_only_prereg"] = [col[prereg_name]]
+            if prev_i is not None:
+                ablations["prevalence+distance_prereg"] = [prev_i, col[prereg_name]]
 
     # A class must have finite values in every column any predictor will touch --
     # including the ablation columns, which may sit outside `feature_subset`.
@@ -242,14 +268,25 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
     # gate C: full beats each simple predictor (paired diff CI excludes 0)
     gate_C_detail = {}
     gate_C = True
+    gate_C_prereg = True
     for name in ablations:
         diff = r2["full"] - r2[name]
         d = _percentile_ci(diff)
         beats = bool(d["ci_low"] > 0)
         gate_C_detail[name] = {"paired_diff": d, "full_beats_it": beats}
-        gate_C = gate_C and beats
+        # `distance_only` (possibly nested) drives the primary verdict; the
+        # pre-registered baseline drives its own, so the two are never conflated.
+        # `prevalence+distance` carries the SAME nested column, so it belongs to the
+        # primary verdict only -- letting it into the prereg verdict would re-introduce
+        # the nesting the parallel baseline exists to avoid.
+        if name not in PREREG:
+            gate_C = gate_C and beats
+        if name not in ("distance_only", "prevalence+distance"):
+            gate_C_prereg = gate_C_prereg and beats
     if not ablations:
-        gate_C = None
+        gate_C = gate_C_prereg = None
+    elif prereg_name is None:
+        gate_C_prereg = None      # no independent baseline available -> not a verdict
 
     return {
         "n_classes_used": int(len(valid)),
@@ -262,5 +299,8 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
         "normalized_full_r2": norm,
         "gate_B_pass": gate_B,
         "gate_C_pass": gate_C,
+        "gate_C_pass_prereg": gate_C_prereg,
+        "distance_baseline_is_nested_in_full": nested,
+        "distance_col_prereg": prereg_name,
         "gate_C_detail": gate_C_detail,
     }

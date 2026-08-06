@@ -91,12 +91,44 @@ def test_gate_C_runs_for_a_restricted_feature_set():
                          feature_subset=["cos_knn_5", "logit_margin"], n_splits=40)
     assert res["gate_C_pass"] is not None, "gate C must not silently vanish"
     assert set(res["gate_C_detail"]) == {"log_prevalence_only", "distance_only",
-                                         "prevalence+distance"}
+                                         "prevalence+distance",
+                                         "distance_only_prereg",
+                                         "prevalence+distance_prereg"}
     assert res["n_features_full"] == 2
     assert res["distance_col_used"] == "cos_knn_5"
     assert res["gate_B_pass"] and res["gate_C_pass"], "planted signal should pass B and C"
     print(f"  restricted set: gate B {res['gate_B_pass']} gate C {res['gate_C_pass']} "
           f"ablations {sorted(res['gate_C_detail'])} distance={res['distance_col_used']}  OK")
+
+
+def test_nested_distance_baseline_is_flagged_and_prereg_reported_separately():
+    """The Amendment-7 side effect: the stability screen picked `cos_knn_5` as the
+    distance baseline, and on Pl@ntNet that feature is ALSO in the primary feature set.
+    The ablation is then a nested submodel, which makes gate C strictly harder than the
+    pre-registered §6.5C question. Both verdicts must be reported, never conflated."""
+    rng = np.random.default_rng(5)
+    K = 140
+    names = ["cos_knn_5", "logit_margin", "log_prevalence", "cos_knn_1"]
+    Phi = rng.normal(0, 1, (K, len(names)))
+    Phi[:, 3] = 0.3 * Phi[:, 0] + rng.normal(0, 0.9, K)   # a weaker distance proxy
+    delta = 0.9 * Phi[:, 0] + rng.normal(0, 0.5, K)       # signal lives in cos_knn_5 ONLY
+
+    nested = predictability(Phi, delta, names,
+                            feature_subset=["cos_knn_5", "logit_margin"], n_splits=60)
+    assert nested["distance_baseline_is_nested_in_full"], "nesting must be flagged"
+    assert nested["distance_col_prereg"] == "cos_knn_1"
+    # Signal is entirely in cos_knn_5, so adding logit_margin buys nothing: the NESTED
+    # test must fail while the pre-registered (independent) baseline is still beaten.
+    assert not nested["gate_C_pass"], "nested test should not pass when the extra feature is inert"
+    assert nested["gate_C_pass_prereg"], "the pre-registered baseline should still be beaten"
+
+    apart = predictability(Phi, delta, names,
+                           feature_subset=["cos_knn_5", "logit_margin"],
+                           distance_col=("cos_knn_1",), n_splits=60)
+    assert not apart["distance_baseline_is_nested_in_full"]
+    print(f"  nested={nested['distance_baseline_is_nested_in_full']} -> "
+          f"gate_C {nested['gate_C_pass']} but gate_C_prereg "
+          f"{nested['gate_C_pass_prereg']}; the two are not the same question  OK")
 
 
 def test_underpowered_flag_marks_the_overfit_regime():
@@ -118,5 +150,6 @@ if __name__ == "__main__":
     test_rejects_worlds_without_class_structure()
     test_capacity_is_punished_not_rewarded()
     test_gate_C_runs_for_a_restricted_feature_set()
+    test_nested_distance_baseline_is_flagged_and_prereg_reported_separately()
     test_underpowered_flag_marks_the_overfit_regime()
-    print("all 5 phase-0-v2 / gate-C tests passed")
+    print("all 6 phase-0-v2 / gate-C tests passed")

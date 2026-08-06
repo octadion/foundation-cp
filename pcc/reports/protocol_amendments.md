@@ -620,6 +620,37 @@ global temperature (reliability after T > 0.30) **AND** `class` R² exceeds ever
 Reported alongside: `target_sd` = sd(q*_y), the §5 discriminant — **0.0839** when class
 structure was planted vs **0.0020** when only global miscalibration was.
 
+### R² alone was not enough — correlation is reported too (added 2026-08-06)
+
+R² conflates DIRECTION with AMPLITUDE: a mechanism that ranks classes correctly but
+under-predicts the spread scores negative R². That gap mattered, because on synthetic
+planted-class data `energy_b10` reached **corr +0.979** while scoring R² +0.523 — so on
+that data the R² separation rested on amplitude, and an optimally rescaled energy
+mechanism (upper bound corr² = 0.958) would have nearly tied with `class` (0.976). Under
+that reading §5's alternative hypothesis — "this is per-sample difficulty relabelled by
+class" — would have been largely TRUE, and the §5 claim unsupportable.
+
+**Real Pl@ntNet data settles it in the opposite direction** (98 abundant classes, α=0.1):
+
+| mechanism | R² | corr | corr² = rescaled-R² ceiling |
+|---|---|---|---|
+| `global` | -0.173 | +0.000 | 0.000 (a constant, by construction) |
+| `energy_b2` | -0.164 | +0.037 | 0.001 |
+| `energy_b10` | -0.073 | +0.071 | 0.005 |
+| `energy_b50` | -0.050 | +0.090 | **0.008** |
+| `class` | **+0.583** | **+0.797** | **0.635** |
+
+Free energy carries **essentially no class-level quantile information**: even with an
+optimal affine rescale it could explain 0.8% of the variance, against 63.5% for class
+identity. So §5's alternative hypothesis is **refuted, not merely outscored** — a much
+stronger statement than R² alone licensed.
+
+The synthetic/real discrepancy is instructive and is a limitation of the generator, not
+of the data: `make_world("class")` gives every sample in a class the same difficulty, so
+per-class mean energy becomes a near-deterministic function of class difficulty. Real
+classes have internal spread. **Planted worlds validate that a metric can DISCRIMINATE;
+they do not calibrate how strong a rival will be on real data.**
+
 ### Validation (mandatory before any Phase-0 verdict is read)
 
 `pcc/tests/test_phase0_explain.py` — recovers the planted mechanism in **4/4** worlds,
@@ -719,15 +750,33 @@ positive result — exactly the failure mode Amendment 4 was written to prevent.
 𝒴_held-out, and a test asserts the train-selected λ need not equal the held-out
 optimum (observed: 0.10 vs 0.05, giving a held-out **-0.050**).
 
-### Honest limitation
+### Result on real Pl@ntNet data — §6.4 PASSES (2026-08-06)
 
-At R²≈0.30 the expected gain (**+0.02**) is **smaller than the error in transferring λ
-across class sets**. Synthetic end-to-end at that quality returns `observed -0.0017`
-against `oracle +0.3533` and `raw λ=1 -0.3850`. So the correct reading of §6.4 at
-current descriptor quality is **null with a quantified ceiling**, not "negative":
-λ-selection successfully prevents the harm, and the distance from 0 to +0.35 is what
-better descriptors would have to buy. Report the controls, never the verdict alone —
-if `oracle_ceiling` ≤ 0.02 the metric cannot return a positive and the observed value
+α=0.1, 152 usable classes, worst-class coverage at matched average set size:
+
+| quantity | value |
+|---|---|
+| **observed** | **+0.0748**  95% CI [+0.0380, +0.1116] |
+| shuffled null | -0.1518 (observed beats it) |
+| oracle ceiling | +0.3926 → **19% of the available headroom captured** |
+| raw λ=1 (the retired application) | **-0.1733** |
+| λ selected on 𝒴_train | 0.265 |
+| design 4 on the SAME data | **-60.575** |
+
+The predicted correction improves worst-class coverage by **7.5 percentage points at
+identical average set size**, and it does so on classes whose δ_y was never measured.
+Design 4 called the same data -60.575. The metric was the problem.
+
+**My synthetic forecast was wrong and is corrected here.** From planted data at R²≈0.3 I
+predicted `observed ≈ -0.002` ("null with a quantified ceiling") because λ-transfer error
+looked larger than the gain. Real data gives +0.0748 with a CI excluding zero. Two
+reasons: real Pl@ntNet δ_y has a much larger spread than the synthetic (sd(q*_y) = 0.35),
+so the same relative predictor quality buys more absolute coverage; and λ transferred
+cleanly (0.265, an interior value, not the degenerate 0.01 the synthetic selected).
+Synthetic controls bound what a metric CAN detect; they do not forecast effect sizes.
+
+Still required, and unchanged: report the controls, never the verdict alone. If
+`oracle_ceiling` ≤ 0.02 the metric cannot return a positive and the observed value
 carries no information either way.
 
 ### Consequence for the tail report and §9
