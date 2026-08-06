@@ -660,6 +660,84 @@ Amendment 5 established for descriptor noise.
 
 ---
 
+## Amendment 8 — §6.4 inverted: match the resource, read the benefit (2026-08-06)
+
+**Status: ADOPTED, implemented, 5 tests.** Design 5. The previous four are in
+`pcc/eval/setsize.py`'s module docstring.
+
+### Design 4 had no headroom, and its own controls said so
+
+Design 4's recorded controls: `oracle +0.045`, `oracle+constant +0.046`,
+`pure constant ≈ -0.29`, `shuffled oracle -15.39`, `random -12.54`.
+
+**A perfect δ̂ scored +0.045 while the noise floor was -15.** The ceiling was
+essentially zero and the entire dynamic range sat on the negative side, so no real
+predictor could ever return a positive. That is the same defect that retired design 2
+("marginal split-CP is already optimal, so a class-indexed correction provably cannot
+win") — and it was sitting in the file, unread, while Pl@ntNet reported **-60.58**.
+
+Root cause is Amendment 6's: matching on COVERAGE and reading SET SIZE is the
+ill-conditioned direction, because set size is near-vertical in the threshold.
+
+### The inversion
+
+Match the **resource** — average set size, which is smooth and monotone in a scalar
+shift, so bisection is stable — and read the **benefit** — per-class coverage equity,
+bounded in [0,1]. Oracle headroom becomes **+0.31** on worst-class coverage.
+
+### Objective: worst-class coverage, NOT macro
+
+| objective | oracle at matched size |
+|---|---|
+| worst-class | **+0.312** |
+| macro | +0.012 |
+
+Macro has no headroom **even for an oracle**, because a uniform threshold is already
+near-optimal for an unweighted mean — Jensen, not a property of δ_y. Macro therefore
+cannot be §6.4's objective, though it remains correct for the descriptive tail report
+(`pcc.eval.tail`), where the question is not comparative.
+
+### Shrinkage is mandatory, and λ must come from 𝒴_train
+
+The raw δ̂ **hurts** at realistic predictor quality. A worst-class objective is governed
+by the **largest** error in δ̂, not its variance — and R² controls *mean squared* error,
+so the requirement tightens as K grows (the max of K Gaussian errors is ≈2.7σ at
+K=60). Break-even in raw form is at ρ=1.0, i.e. a perfect predictor.
+
+Shrinking δ̃ = λ·δ̂ fixes it, with λ far more aggressive than regression attenuation:
+
+| predictor R² | best λ | Δ worst-class | raw λ=1 |
+|---|---|---|---|
+| 0.30 | 0.10 | **+0.025** | -0.403 |
+| 0.56 | 0.10 | +0.054 | -0.352 |
+| 0.90 | 0.20 | +0.126 | -0.116 |
+| oracle | 0.70 | +0.390 | +0.340 |
+
+**λ is a free parameter**, so selecting it on the held-out classes would manufacture a
+positive result — exactly the failure mode Amendment 4 was written to prevent.
+`setsize_translation_shrunk` selects λ on 𝒴_train and applies it unchanged to
+𝒴_held-out, and a test asserts the train-selected λ need not equal the held-out
+optimum (observed: 0.10 vs 0.05, giving a held-out **-0.050**).
+
+### Honest limitation
+
+At R²≈0.30 the expected gain (**+0.02**) is **smaller than the error in transferring λ
+across class sets**. Synthetic end-to-end at that quality returns `observed -0.0017`
+against `oracle +0.3533` and `raw λ=1 -0.3850`. So the correct reading of §6.4 at
+current descriptor quality is **null with a quantified ceiling**, not "negative":
+λ-selection successfully prevents the harm, and the distance from 0 to +0.35 is what
+better descriptors would have to buy. Report the controls, never the verdict alone —
+if `oracle_ceiling` ≤ 0.02 the metric cannot return a positive and the observed value
+carries no information either way.
+
+### Consequence for the tail report and §9
+
+Both now apply the **shrunk** δ̂. Reporting them under the raw vector would describe a
+correction the protocol does not endorse, and the earlier tail table (set sizes falling
+2.31→2.03 etc.) was computed that way.
+
+---
+
 ## Status
 
 - Amendment 1: **implemented + tested** (`pcc/eval/decomposition.py:group_quantile`).
@@ -668,13 +746,17 @@ Amendment 5 established for descriptor noise.
   needs a **human decision for Pl@ntNet** (the head/tail trade-off).
 - Amendment 3: **SUPERSEDED by Amendment 6.** `phase0_cc_decomposition` is retained
   only as a secondary deployment-cost report; it cannot rank mechanisms.
-- Amendment 4: implemented (`eval/setsize.py`, held-out label space + deflation).
+- Amendment 4: **SUPERSEDED by Amendment 8** (no oracle headroom; retained as a
+  secondary, non-verdict view for continuity).
 - Amendment 5: implemented (`predictability_by_stratum`), wired into `notebooks/04`.
 - Amendment 6: **adopted + implemented + validated 4/4**
   (`decomposition.phase0_explain_class_level`, `targets/delta.py:class_quantile_reliability`,
   `pcc/tests/test_phase0_explain.py`), wired into `notebooks/03`.
 - Amendment 7: **adopted + implemented + tested** (`predictability(feature_subset=...)`,
   ablations always resolved from the complete Phi; `underpowered` flag).
+- Amendment 8: **adopted + implemented + tested**
+  (`setsize.setsize_translation_shrunk`, `equity_at_matched_size`, `select_shrinkage`,
+  `pcc/tests/test_sec64_shrunk.py`), wired into `notebooks/04`.
 - `δ_y` as defined in §6.1 (conformal quantiles) is retained as the **deployment**
   target definition; these amendments concern how it is **measured** for the
   structure and predictability questions.

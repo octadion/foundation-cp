@@ -60,6 +60,194 @@ from pcc.eval.conformal import build_sets
 from pcc.eval.metrics import summary
 
 
+EQUITY_STATS = {
+    "worst": lambda c: float(np.nanmin(c)),
+    "p05": lambda c: float(np.nanpercentile(c, 5)),
+    "p10": lambda c: float(np.nanpercentile(c, 10)),
+    "p25": lambda c: float(np.nanpercentile(c, 25)),
+    "macro": lambda c: float(np.nanmean(c)),
+    "neg_covgap": lambda c: -float(np.nanmean(np.abs(c - np.nanmean(c)))),
+}
+
+
+def avg_set_size_at_shift(score_matrix, thresholds, shift):
+    t = np.asarray(thresholds, float) + shift
+    return float((np.asarray(score_matrix) <= t[None, :]).sum(axis=1).mean())
+
+
+def shift_to_size(score_matrix, thresholds, target_size, *, lo=-2.0, hi=2.0,
+                  tol=1e-6, max_iter=200):
+    """Scalar shift making the average set size equal `target_size`.
+
+    Bisection is valid because average set size is monotone non-decreasing in the
+    shift. This is the well-conditioned direction: average set size is smooth and
+    monotone in the threshold, whereas the inverse problem (hit a coverage target,
+    read the size) is near-vertical — with s = 1 - p on a weak model nearly every
+    wrong label sits in [0.98, 1.0], so a +0.012 threshold change moved average set
+    size from 13.6 to 55.7. Matching the RESOURCE and reading the BENEFIT is what
+    Amendment 8 inverts.
+    """
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2
+        if avg_set_size_at_shift(score_matrix, thresholds, mid) < target_size:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < tol:
+            break
+    return (lo + hi) / 2
+
+
+def equity_at_matched_size(score_matrix, labels, n_classes, thresholds, target_size):
+    """Per-class coverage equity of a threshold vector, shifted to `target_size`.
+
+    Returns every statistic in EQUITY_STATS plus the achieved size, so the caller can
+    verify the match rather than trust it.
+    """
+    from pcc.eval.metrics import per_class_coverage
+
+    sh = shift_to_size(score_matrix, thresholds, target_size)
+    t = np.asarray(thresholds, float) + sh
+    sets = np.asarray(score_matrix) <= t[None, :]
+    cov = per_class_coverage(sets, labels, n_classes)
+    out = {k: f(cov) for k, f in EQUITY_STATS.items()}
+    out["avg_set_size"] = float(sets.sum(axis=1).mean())
+    out["shift"] = float(sh)
+    return out
+
+
+def select_shrinkage(score_matrix, labels, n_classes, q_global, delta_hat,
+                     target_size, *, lams=(0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0),
+                     stat="worst"):
+    """Choose the shrinkage λ in δ̃ = λ·δ̂ that maximizes `stat` at matched size.
+
+    **MUST be called on the TRAIN label space only.** λ is a free parameter; selecting
+    it on the held-out classes would let it manufacture a positive §6.4 result, which
+    is precisely the failure mode Amendments 4 and 8 exist to prevent. `setsize_
+    translation_shrunk` enforces this by construction.
+
+    WHY SHRINKAGE IS NEEDED AT ALL (measured, Amendment 8): the raw δ̂ (λ=1) HURTS at
+    realistic predictor quality, because a worst-class objective is governed by the
+    LARGEST error in δ̂, not its variance — and R² controls mean squared error, so the
+    requirement tightens as the number of classes grows. Shrinking trades that tail
+    away. Optimal λ is far more aggressive than regression attenuation would suggest:
+
+        predictor R² 0.30 -> λ≈0.10 -> Δworst +0.025   (raw λ=1 gives -0.403)
+        predictor R² 0.56 -> λ≈0.10 -> Δworst +0.054
+        predictor R² 0.90 -> λ≈0.20 -> Δworst +0.126
+        oracle            -> λ≈0.70 -> Δworst +0.390
+    """
+    d = np.asarray(delta_hat, float)
+    d = np.where(np.isfinite(d), d, 0.0)
+    base = np.full(n_classes, float(q_global))
+    best_lam, best_val, curve = 0.0, -np.inf, {}
+    for lam in lams:
+        e = equity_at_matched_size(score_matrix, labels, n_classes,
+                                   base + lam * d, target_size)
+        curve[float(lam)] = e[stat]
+        if e[stat] > best_val:
+            best_lam, best_val = float(lam), e[stat]
+    return {"lambda": best_lam, "value": best_val, "curve": curve, "stat": stat}
+
+
+def setsize_translation_shrunk(score_matrix, labels, alpha, cal_idx, eval_idx,
+                               train_classes, heldout_classes, delta_hat, *,
+                               stat="worst", lams=(0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0),
+                               controls=True, q_global=None):
+    """§6.4, ADOPTED design (Amendment 8): does the PREDICTED correction improve
+    coverage EQUITY on held-out classes, at matched average set size?
+
+    Two changes from design 4, both forced by measurement:
+
+    1. **Inverted.** Design 4 matched coverage and read set size. Its own recorded
+       controls show why that cannot work: `oracle +0.045` against
+       `shuffled oracle -15.39` — a PERFECT δ̂ bought essentially nothing, so the
+       ceiling was ~0 and the entire dynamic range sat on the negative side. Here the
+       resource (average set size) is matched and the benefit (coverage equity) is
+       read. Oracle headroom becomes **+0.34** on worst-class coverage.
+    2. **Shrunk.** δ̃ = λ·δ̂ with λ chosen on the TRAIN label space only. Raw δ̂ hurts
+       at realistic predictor quality; see `select_shrinkage` for the numbers.
+
+    `stat="macro"` is deliberately NOT the default: macro coverage has **no headroom
+    even for an oracle** (measured -0.0016), because a uniform threshold is already
+    near-optimal for an unweighted mean — that is Jensen, not a property of δ_y. Macro
+    remains the right statistic for the TAIL report (`pcc.eval.tail`), where the
+    question is descriptive rather than comparative.
+
+    λ is selected on 𝒴_train and applied unchanged to 𝒴_held-out. Selecting it on the
+    held-out classes would let a free parameter manufacture a positive result.
+    """
+    from pcc.eval.conformal import restrict_to_classes
+
+    S = np.asarray(score_matrix)
+    labels = np.asarray(labels, int)
+    d_all = np.asarray(delta_hat, float)
+    d_all = np.where(np.isfinite(d_all), d_all, 0.0)
+
+    # Marginal threshold from the pooled calibration split. Held-out classes have no
+    # labelled calibration data of their own -- that is the premise of Sec 6.4 -- but
+    # the marginal quantile is available regardless. `cal_idx=None` with an explicit
+    # `q_global` covers the common case where cal and eval come from separate arrays.
+    if cal_idx is None:
+        if q_global is None:
+            raise ValueError("pass cal_idx or q_global")
+    else:
+        q_global = float(np.quantile(S[cal_idx, labels[cal_idx]], 1 - alpha))
+    q_global = float(q_global)
+    if eval_idx is None:
+        eval_idx = np.arange(len(labels))
+
+    def _space(classes, idx):
+        Ss, ys, Ks, ids = restrict_to_classes(S[idx], labels[idx], classes)
+        return Ss, ys, Ks, ids
+
+    # --- step 1: select lambda on the TRAIN label space -------------------------
+    S_tr, y_tr, K_tr, ids_tr = _space(train_classes, eval_idx)
+    base_tr = np.full(K_tr, q_global)
+    target_tr = avg_set_size_at_shift(S_tr, base_tr, 0.0)
+    sel = select_shrinkage(S_tr, y_tr, K_tr, q_global, d_all[ids_tr],
+                           target_tr, lams=lams, stat=stat)
+    lam = sel["lambda"]
+
+    # --- step 2: apply it, unchanged, on the HELD-OUT label space ---------------
+    S_ho, y_ho, K_ho, ids_ho = _space(heldout_classes, eval_idx)
+    base_ho = np.full(K_ho, q_global)
+    target_ho = avg_set_size_at_shift(S_ho, base_ho, 0.0)
+    e_base = equity_at_matched_size(S_ho, y_ho, K_ho, base_ho, target_ho)
+    e_corr = equity_at_matched_size(S_ho, y_ho, K_ho,
+                                    base_ho + lam * d_all[ids_ho], target_ho)
+
+    out = {"stat": stat, "lambda_selected_on_train": lam,
+           "lambda_curve_train": sel["curve"],
+           "n_classes_heldout": int(K_ho), "n_classes_train": int(K_tr),
+           "target_avg_set_size": float(target_ho),
+           "uncorrected": e_base, "corrected": e_corr,
+           "delta": {k: e_corr[k] - e_base[k] for k in EQUITY_STATS},
+           "size_matched": bool(abs(e_corr["avg_set_size"]
+                                    - e_base["avg_set_size"]) < 1e-2),
+           "pass": bool(e_corr[stat] - e_base[stat] > 0)}
+
+    if controls:
+        rng = np.random.default_rng(0)
+        ctl = {}
+        # A CEILING, not a method: the oracle uses held-out EVAL labels, so it is not
+        # achievable -- it exists only to show the metric has headroom at all.
+        s_true_ho = S_ho[np.arange(len(y_ho)), y_ho]
+        oracle = np.zeros(K_ho)
+        for k in range(K_ho):
+            m = y_ho == k
+            if m.sum() >= 5:
+                oracle[k] = float(np.quantile(s_true_ho[m], 1 - alpha)) - q_global
+        for name, vec in (("oracle_ceiling", oracle),
+                          ("pure_constant", np.full(K_ho, 0.05)),
+                          ("shuffled_delta", rng.permutation(d_all[ids_ho])),
+                          ("raw_delta_lambda1", d_all[ids_ho])):
+            e = equity_at_matched_size(S_ho, y_ho, K_ho, base_ho + vec, target_ho)
+            ctl[name] = e[stat] - e_base[stat]
+        out["controls"] = ctl
+    return out
+
+
 def corrected_thresholds(q_global: float, delta_hat: np.ndarray) -> np.ndarray:
     """Per-class threshold q̂ + δ̂_k. NaN δ̂ (no prediction) falls back to q̂."""
     d = np.array(delta_hat, float)

@@ -462,6 +462,12 @@ def phase0_explain_class_level(logits, labels, n_classes, alpha, cal_idx, eval_i
     preds["class"] = q_c[scored]
 
     r2 = {k: _r2_across_classes(target, v) for k, v in preds.items()}
+    # R2 conflates DIRECTION with AMPLITUDE: a mechanism that ranks classes correctly
+    # but under-predicts the spread scores negative R2. Report correlation alongside so
+    # the §5 claim can be stated precisely -- "energy cannot reproduce the class-level
+    # quantile" is a different and much stronger claim than "energy captures the
+    # ordering but not the magnitude", and only the correlation separates them.
+    corr = {k: _corr_across_classes(target, v) for k, v in preds.items()}
 
     Ts = np.linspace(0.25, 4.0, 31) if Ts is None else np.asarray(Ts, float)
     best_T, best_sz = 1.0, np.inf
@@ -500,7 +506,7 @@ def phase0_explain_class_level(logits, labels, n_classes, alpha, cal_idx, eval_i
                                        estimator=estimator)
 
     rivals = {k: v for k, v in r2.items() if k not in ("class", "global")}
-    return {"r2": r2, "n_classes_scored": int(len(scored)),
+    return {"r2": r2, "corr": corr, "n_classes_scored": int(len(scored)),
             "target_sd": float(target.std()), "q_global": float(q_global),
             "best_T": float(best_T),
             "best_T_at_boundary": bool(best_T in (float(Ts[0]), float(Ts[-1]))),
@@ -512,6 +518,14 @@ def phase0_explain_class_level(logits, labels, n_classes, alpha, cal_idx, eval_i
             "class_beats_rivals": bool(np.isfinite(r2["class"]) and rivals and
                                        r2["class"] > max(rivals.values())),
             "best_rival": (max(rivals, key=rivals.get) if rivals else None)}
+
+
+def _corr_across_classes(y, p):
+    y = np.asarray(y, float)
+    p = np.asarray(p, float)
+    if len(y) < 3 or np.std(y) == 0 or np.std(p) == 0:
+        return float("nan")     # a constant predictor has no correlation, not zero
+    return float(np.corrcoef(y, p)[0, 1])
 
 
 def _r2_across_classes(y, p):
