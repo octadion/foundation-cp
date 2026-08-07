@@ -235,7 +235,8 @@ def _delta_on_subset(scores, classes, idx, n_classes, alpha, min_per_class,
 
 def split_half_reliability(cal_scores_true, class_of_sample, n_classes, alpha, *,
                            n_splits=100, min_per_class=2, seed=42,
-                           group_of_class=None, estimator="empirical"):
+                           group_of_class=None, estimator="empirical",
+                           class_subset=None):
     """Gate A (§6.2): split-half reliability of δ_y.
 
     For each of `n_splits` random splits, halve EACH class's samples, compute δ_y
@@ -247,6 +248,14 @@ def split_half_reliability(cal_scores_true, class_of_sample, n_classes, alpha, *
     given, reliability is also reported per group. Gate A threshold: reliability
     >= 0.3 in the realistic-sample regime. This is the CEILING on any predictive
     R² (§6.3) — report R² normalized by it, never raw.
+
+    `class_subset` restricts the CORRELATION to a subset of classes while leaving the
+    pooled q̂_global untouched, so the ceiling can be computed at the same granularity as
+    the R² it normalizes. This matters and the omission was a real defect: reliability is
+    itself a variance ratio, so in a stratum where δ_y barely varies the ceiling is much
+    lower than the pooled 0.754 — and normalizing that stratum's R² by the POOLED ceiling
+    systematically understates it. §6.3 already requires normalizing by the ceiling; it was
+    being applied at the wrong level of aggregation.
     """
     cal_scores_true = np.asarray(cal_scores_true, float)
     class_of_sample = np.asarray(class_of_sample)
@@ -273,6 +282,10 @@ def split_half_reliability(cal_scores_true, class_of_sample, n_classes, alpha, *
         # isfinite, NOT ~isnan: conformal quantiles can be +inf for tiny classes and
         # an inf slips through a NaN-only filter, turning the correlation into NaN.
         both = np.isfinite(d1) & np.isfinite(d2)
+        if class_subset is not None:
+            keep = np.zeros(n_classes, dtype=bool)
+            keep[np.asarray(class_subset, int)] = True
+            both = both & keep
         overall.append(spearman_brown(_pearson(d1[both], d2[both])))
 
         if group_of_class is not None:
@@ -289,6 +302,10 @@ def split_half_reliability(cal_scores_true, class_of_sample, n_classes, alpha, *
     # the reliability then comes back NaN. Report the count so a NaN is diagnosable
     # instead of mysterious.
     counts_all = np.bincount(class_of_sample, minlength=n_classes)
+    if class_subset is not None:
+        keep = np.zeros(n_classes, dtype=bool)
+        keep[np.asarray(class_subset, int)] = True
+        counts_all = np.where(keep, counts_all, 0)
     n_eligible = int((counts_all >= 2 * min_per_class).sum())
     n_valid = int(np.isfinite(overall).sum())
     out = {"reliability_mean": float(np.nanmean(overall)) if n_valid else float("nan"),

@@ -67,7 +67,8 @@ def _percentile_ci(arr, alpha=0.05):
 
 def predictability_by_stratum(Phi, delta, feature_names, counts, *, reliability=None,
                               n_splits=100, frac_train=0.5, lam=1.0, seed=42,
-                              n_strata=4, min_classes=20, **kw):
+                              n_strata=4, min_classes=20,
+                              reliability_fn=None, **kw):
     """Gate B/C computed WITHIN prevalence strata — the PRIMARY form of gate C
     (Amendment 5, reports/protocol_amendments.md).
 
@@ -84,6 +85,13 @@ def predictability_by_stratum(Phi, delta, feature_names, counts, *, reliability=
     quartile, prevalence barely varies (so it cannot explain much) and descriptor
     quality is roughly uniform (so the quality gradient is held fixed). Geometry that
     still predicts δ_y inside strata is not a prevalence artefact.
+
+    `reliability_fn(class_ids) -> float` supplies a PER-STRATUM reliability ceiling.
+    Pass it whenever normalized R² is compared across strata. Reliability is a variance
+    ratio, so a stratum whose δ_y barely varies has a much lower ceiling than the pooled
+    one — normalizing every stratum by the pooled ceiling therefore understates exactly the
+    strata where the target is most compressed. `sd_delta` is returned alongside as the
+    direct diagnostic for that compression.
 
     Returns {stratum: predictability(...)} plus `summary` giving, per stratum, the
     held-out R² and whether the full descriptor beat each ablation. Strata are never
@@ -112,8 +120,14 @@ def predictability_by_stratum(Phi, delta, feature_names, counts, *, reliability=
             out[name] = {"skipped": True, "n_usable_classes": usable,
                          "reason": f"fewer than {min_classes} usable classes"}
             continue
+        rel_s = reliability
+        if reliability_fn is not None:
+            try:
+                rel_s = reliability_fn(sub)
+            except Exception:
+                rel_s = reliability
         try:
-            res = predictability(Phi, d_sub, feature_names, reliability=reliability,
+            res = predictability(Phi, d_sub, feature_names, reliability=rel_s,
                                  n_splits=n_splits, frac_train=frac_train, lam=lam,
                                  seed=seed, **kw)
         except ValueError as e:
@@ -121,6 +135,10 @@ def predictability_by_stratum(Phi, delta, feature_names, counts, *, reliability=
             continue
         res["n_classes_in_stratum"] = int(len(sub))
         res["prevalence_range"] = [int(counts[sub].min()), int(counts[sub].max())]
+        fin = d_sub[np.isfinite(d_sub)]
+        res["sd_delta"] = float(fin.std()) if len(fin) > 1 else float("nan")
+        res["reliability_used"] = (float(rel_s) if rel_s is not None
+                                   else float("nan"))
         out[name] = res
         summary[name] = {
             "n_classes": res["n_classes_used"],
@@ -129,6 +147,17 @@ def predictability_by_stratum(Phi, delta, feature_names, counts, *, reliability=
             "r2_full_ci": [res["r2_by_predictor"]["full"]["ci_low"],
                            res["r2_by_predictor"]["full"]["ci_high"]],
             "gate_B_pass": res["gate_B_pass"],
+            "sd_delta": res["sd_delta"],
+            "reliability_used": res["reliability_used"],
+            # NaN, not None: a stratum whose ceiling comes back non-finite yields no
+            # normalized R2, and callers build float arrays from these fields --
+            # np.array([None], float) raises, np.array([nan], float) does not.
+            "r2_normalized": (res["normalized_full_r2"]["mean"]
+                              if res["normalized_full_r2"] else float("nan")),
+            "r2_normalized_ci": ([res["normalized_full_r2"]["ci_low"],
+                                  res["normalized_full_r2"]["ci_high"]]
+                                 if res["normalized_full_r2"] else
+                                 [float("nan"), float("nan")]),
             "underpowered": res["underpowered"],
             "gate_C_pass": res["gate_C_pass"],
             "gate_C_pass_prereg": res["gate_C_pass_prereg"],
