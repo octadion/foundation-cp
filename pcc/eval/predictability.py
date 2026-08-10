@@ -162,6 +162,7 @@ def predictability_by_stratum(Phi, delta, feature_names, counts, *, reliability=
             "gate_C_pass": res["gate_C_pass"],
             "gate_C_pass_prereg": res["gate_C_pass_prereg"],
             "distance_baseline_is_nested_in_full": res["distance_baseline_is_nested_in_full"],
+            "prevalence_ablation_degenerate": res["prevalence_ablation_degenerate"],
             "n_train_classes": res["n_train_classes"],
             "n_features_full": res["n_features_full"],
             "beats": {k: v["full_beats_it"] for k, v in res["gate_C_detail"].items()},
@@ -179,7 +180,8 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
                    n_splits=100, frac_train=0.5, lam=1.0, seed=42,
                    feature_subset=None,
                    prevalence_col="log_prevalence",
-                   distance_col=("cos_knn_5", "cos_knn_1", "cos_knn_10")):
+                   distance_col=("cos_knn_5", "cos_knn_1", "cos_knn_10",
+                                 "prof_knn_1", "prof_knn_5", "prof_knn_10")):
     """Class-level split predictability of δ_y with gate B/C summaries.
 
     Only classes with a finite δ_y and finite descriptor row are used. For each
@@ -197,7 +199,11 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
     likely to fail was never run (observed on Pl@ntNet, 2026-08-05).
 
     `distance_col` is a tuple of CANDIDATES, first present wins, so the distance
-    baseline survives a stability screen that drops `cos_knn_1`.
+    baseline survives a stability screen that drops `cos_knn_1`. It spans BOTH descriptor
+    families — `cos_knn_*` (embedding, `descriptors.phi`) and `prof_knn_*` (output space,
+    `descriptors.output_space`) — because a name mismatch silently removes the distance
+    ablation altogether, leaving gate C tested against prevalence alone. On a balanced
+    dataset that is a vacuous test, so the two failures compound into a false pass.
 
     Also returns `n_train_classes`, `n_features_full` and `underpowered`. A ridge with
     p features fit on n_train classes cannot be compared fairly against a 1-2 feature
@@ -222,6 +228,21 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
         raise ValueError("feature_subset selected no columns")
 
     prev_i = col.get(prevalence_col)
+    # A prevalence ablation is VACUOUS on a balanced dataset. With near-equal class
+    # counts, log-prevalence is almost constant, so `log_prevalence_only` predicts the
+    # mean and scores about -1/n_train; the full model then beats it trivially and gate C
+    # "passes" without having been tested. Detected here rather than left to the caller,
+    # because the failure is silent and looks like a result. (Same situation as CIFAR-100.)
+    prevalence_degenerate = False
+    if prev_i is not None:
+        pv = Phi[:, prev_i]
+        pv = pv[np.isfinite(pv)]
+        prevalence_degenerate = bool(len(pv) < 2 or np.std(pv) < 1e-8
+                                     or (np.ptp(pv) / max(abs(np.mean(pv)), 1e-12)) < 1e-3)
+        # The ablation is still COMPUTED and still returned, so callers keep their keys and
+        # the number stays visible; it is only excluded from the gate-C verdict below. A
+        # guaranteed win must not be allowed to count as evidence, but deleting it would
+        # hide that the test was attempted at all.
     cands = [n for n in np.atleast_1d(distance_col) if n in col]
     dist_name = cands[0] if cands else None
     dist_i = col.get(dist_name) if dist_name is not None else None
@@ -308,11 +329,17 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
         # `prevalence+distance` carries the SAME nested column, so it belongs to the
         # primary verdict only -- letting it into the prereg verdict would re-introduce
         # the nesting the parallel baseline exists to avoid.
+        vacuous = prevalence_degenerate and name.startswith(("log_prevalence_only",
+                                                              "prevalence+distance"))
+        gate_C_detail[name]["vacuous"] = bool(vacuous)
+        if vacuous:
+            continue          # computed and reported, but cannot count toward a verdict
         if name not in PREREG:
             gate_C = gate_C and beats
         if name not in ("distance_only", "prevalence+distance"):
             gate_C_prereg = gate_C_prereg and beats
-    if not ablations:
+    counted = [k for k in ablations if not gate_C_detail[k].get("vacuous")]
+    if not counted:
         gate_C = gate_C_prereg = None
     elif prereg_name is None:
         gate_C_prereg = None      # no independent baseline available -> not a verdict
@@ -323,6 +350,7 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
         "n_features_full": int(len(full_cols)),
         "underpowered": bool(n_tr < 3 * len(full_cols)),
         "distance_col_used": dist_name,
+        "prevalence_ablation_degenerate": prevalence_degenerate,
         "r2_by_predictor": summ,
         "reliability_ceiling": reliability,
         "normalized_full_r2": norm,
@@ -333,3 +361,129 @@ def predictability(Phi, delta, feature_names, *, reliability=None,
         "distance_col_prereg": prereg_name,
         "gate_C_detail": gate_C_detail,
     }
+
+def class_permutation_p(Phi, delta, feature_names, *, feature_subset=None,
+                        ablation="log_prevalence_only", n_perm=200, n_splits=20,
+                        frac_train=0.5, lam=1.0, seed=42, **kw):
+    """Gate-C p-value with the CLASS as the unit of exchangeability.
+
+    WHY THIS EXISTS, and why the two tests it replaces were both wrong:
+
+    Gate C compares held-out R² of the full descriptor against an ablation, averaged
+    over `n_splits` random class partitions. Both earlier attempts treated the SPLITS
+    as the sampling units:
+
+      1. a normal approximation `z = mean / (ciW / 3.92)` — but `_percentile_ci`
+         returns percentiles of the per-split VALUES, not a CI on their mean, so the
+         divisor was the distribution sd rather than a standard error;
+      2. a sign-flip randomization test over the per-split differences.
+
+    Correcting (1)'s divisor to `sd/sqrt(n_splits)` would be worse, not better: the
+    splits are re-uses of the SAME class pool, so split-to-split spread is resampling
+    noise, not sampling noise from a population of classes. Dividing by sqrt(n_splits)
+    would inflate significance by treating 100 re-draws of 38 classes as 100
+    independent observations.
+
+    The unit of exchangeability is the **class**. So the null is built by permuting
+    δ_y ACROSS CLASSES — destroying any geometry→δ relationship while preserving the
+    descriptor matrix, the class count, the split procedure and the ridge exactly —
+    and recomputing the same paired statistic. `pcc.eval.tail` already resamples
+    classes rather than samples for its bootstrap; this brings gate C in line.
+
+    Returns the one-sided p for "full beats the ablation" plus the null distribution.
+    """
+    Phi = np.asarray(Phi, float)
+    delta = np.asarray(delta, float)
+
+    def paired_mean(d):
+        res = predictability(Phi, d, feature_names, feature_subset=feature_subset,
+                             n_splits=n_splits, frac_train=frac_train, lam=lam,
+                             seed=seed, **kw)
+        det = res["gate_C_detail"].get(ablation)
+        if det is None:
+            return float("nan")
+        return float(det["paired_diff"]["mean"])
+
+    obs = paired_mean(delta)
+    if not np.isfinite(obs):
+        return {"p_value": float("nan"), "observed": obs, "n_perm": 0,
+                "undefined_reason": f"ablation {ablation!r} not available"}
+
+    finite = np.where(np.isfinite(delta))[0]
+    rng = np.random.default_rng(seed)
+    null = []
+    for _ in range(n_perm):
+        d = np.array(delta)
+        d[finite] = delta[rng.permutation(finite)]   # permute among classes that HAVE δ_y
+        v = paired_mean(d)
+        if np.isfinite(v):
+            null.append(v)
+    null = np.asarray(null, float)
+    if len(null) < 10:
+        return {"p_value": float("nan"), "observed": obs, "n_perm": int(len(null)),
+                "undefined_reason": "too few usable permutations"}
+    return {"p_value": float((np.sum(null >= obs) + 1) / (len(null) + 1)),
+            "observed": obs, "null_mean": float(null.mean()),
+            "null_sd": float(null.std(ddof=1)), "n_perm": int(len(null)),
+            "n_classes_permuted": int(len(finite)), "undefined_reason": None}
+
+def predictability_class_bootstrap(Phi, delta, feature_names, *, feature_subset=None,
+                                   n_boot=400, n_splits=10, frac_train=0.5, lam=1.0,
+                                   seed=42, reliability=None, **kw):
+    """Gate-B held-out R² with a CI that resamples CLASSES, not splits.
+
+    The split-level `_percentile_ci` used elsewhere describes variability across random
+    partitions of a FIXED class pool. It is not a confidence interval for the population
+    of classes, so "R² CI excludes 0" over splits does not support a claim about classes
+    in general — the same unit-of-exchangeability error that made the gate-C p-values
+    unfounded (see reports/prereg_stratum_ceiling.md addendum). `pcc.eval.tail` already
+    bootstraps classes rather than samples; this brings gate B in line.
+
+    Each bootstrap draw resamples the usable classes WITH replacement, then runs the
+    ordinary class-level split procedure inside that draw. Duplicated classes can land in
+    both train and held-out within a draw, which biases R² UPWARD, so this is reported
+    with the split-level interval beside it rather than instead of it — the two bracket
+    the truth from opposite directions and disagreement between them is itself
+    information.
+    """
+    Phi = np.asarray(Phi, float)
+    delta = np.asarray(delta, float)
+    names = list(feature_names)
+    col = {n: i for i, n in enumerate(names)}
+    cols = ([col[n] for n in feature_subset] if feature_subset is not None
+            else list(range(Phi.shape[1])))
+    valid = np.where(np.isfinite(delta) & np.isfinite(Phi[:, cols]).all(axis=1))[0]
+    if len(valid) < 20:
+        raise ValueError(f"too few usable classes ({len(valid)}) for a class bootstrap")
+
+    rng = np.random.default_rng(seed)
+    boot = []
+    for _ in range(n_boot):
+        draw = rng.choice(valid, size=len(valid), replace=True)
+        acc = []
+        for _s in range(n_splits):
+            perm = rng.permutation(len(draw))
+            cut = int(round(frac_train * len(perm)))
+            tr, te = draw[perm[:cut]], draw[perm[cut:]]
+            if len(te) < 2:
+                continue
+            m = ridge_fit(Phi[tr][:, cols], delta[tr], lam)
+            acc.append(r2_score(delta[te], ridge_predict(m, Phi[te][:, cols])))
+        if acc:
+            boot.append(float(np.nanmean(acc)))
+    b = np.asarray(boot, float)
+    b = b[np.isfinite(b)]
+    if len(b) < 20:
+        return {"undefined_reason": "too few usable bootstrap draws", "n_boot": int(len(b))}
+    out = {"mean": float(b.mean()), "median": float(np.median(b)),
+           "ci_low": float(np.percentile(b, 2.5)),
+           "ci_high": float(np.percentile(b, 97.5)),
+           "n_boot": int(len(b)), "n_classes": int(len(valid)),
+           "unit": "class", "undefined_reason": None}
+    if reliability is not None and np.isfinite(reliability) and reliability > 0:
+        out["normalized_mean"] = out["mean"] / reliability
+        out["normalized_ci_low"] = out["ci_low"] / reliability
+        out["normalized_ci_high"] = out["ci_high"] / reliability
+    out["gate_B_pass_class_unit"] = bool(out["ci_low"] > 0)
+    return out
+

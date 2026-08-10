@@ -83,3 +83,42 @@ def holm_bonferroni(pvalues, alpha: float = 0.05):
          "reject": bool(rejected[i])}
         for i in range(m)
     ]
+
+def sign_flip_test(diffs, *, n_perm=20000, seed=42, alternative="greater"):
+    """Exact-in-the-limit randomization test for a PAIRED design (§8.6 companion).
+
+    Replaces the normal approximation used in the Amendment-9 run, where a p-value was
+    derived from a CI width as `z = mean/(ciW/3.92)`. That approximation could not
+    separate p=0.0125 from p=0.0133 at the Holm boundary, and the boundary is exactly
+    where it mattered — so the primary test now uses this instead.
+
+    Under H0 the paired differences are symmetric about 0, so flipping their signs at
+    random generates the null distribution of the mean. `alternative="greater"` tests
+    "full beats the ablation".
+
+    LIMITATION, stated because it is not removable: the per-split differences share a
+    class pool, so they are NOT independent and the test is only approximately exact.
+    It is strictly better conditioned than the normal approximation, not a substitute
+    for a class-label permutation null (`class_permutation_p`), which is the stronger
+    and more expensive option.
+    """
+    d = np.asarray(diffs, dtype=float)
+    d = d[np.isfinite(d)]
+    n = len(d)
+    if n < 3:
+        return {"p_value": float("nan"), "n": n, "observed": float("nan"),
+                "n_perm": 0, "undefined_reason": "fewer than 3 paired observations"}
+    obs = float(d.mean())
+    rng = np.random.default_rng(seed)
+    signs = rng.choice((-1.0, 1.0), size=(n_perm, n))
+    null = (signs * d).mean(axis=1)
+    if alternative == "greater":
+        hits = int(np.sum(null >= obs))
+    elif alternative == "less":
+        hits = int(np.sum(null <= obs))
+    else:
+        hits = int(np.sum(np.abs(null) >= abs(obs)))
+    # +1 in numerator and denominator: the observed assignment is itself one of the
+    # equally likely sign patterns, so a p of exactly 0 is not attainable.
+    return {"p_value": (hits + 1) / (n_perm + 1), "n": n, "observed": obs,
+            "n_perm": int(n_perm), "undefined_reason": None}

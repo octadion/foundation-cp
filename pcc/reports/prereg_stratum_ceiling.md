@@ -112,4 +112,97 @@ Yang pertama lebih kuat. Yang kedua sudah cukup untuk melanjutkan.
 
 ---
 
-**Status:** ditulis, menunggu run tunggal notebook 04.
+## HASIL (2026-08-07) — PREDIKSI TERFALSIFIKASI
+
+Dijalankan sekali, sesuai komitmen. Prediksi di §4 **SALAH**.
+
+| stratum | sampel kal. | sd(δ_y) | plafon per-stratum | R² mentah | R² ter-normalisasi |
+|---|---|---|---|---|---|
+| q0 | 25–40 | 0,2973 | 0,775 | +0,453 | +0,585 |
+| q1 | 41–70 | 0,2730 | 0,516 | +0,261 | +0,505 |
+| q2 | 72–151 | 0,3250 | 0,890 | +0,126 | +0,142 |
+| q3 | 151–616 | 0,2522 | 0,908 | −0,037 | −0,041 |
+
+- `sd(δ_y)` **tidak** menurun monoton (q2 justru tertinggi).
+- Plafon per-stratum **NAIK** dengan prevalensi (0,775 → 0,908) — **berlawanan arah** dengan yang
+  diprediksi.
+- Sebaran R² **melebar** setelah normalisasi (0,490 → 0,625), bukan mendatar.
+
+**Bacaan yang menentukan:** di q3, δ_y terukur paling reliabel (0,908) namun geometri
+memprediksinya paling buruk (−0,037). Penjelasan skala mensyaratkan yang sebaliknya. Karena itu
+verdict-nya **BATASAN SEJATI**: penurunan R² dengan prevalensi bukan artefak metrik.
+
+Hipotesis di §3 salah. Dicatat, bukan direvisi.
+
+### Koreksi multiplisitas (§8.6) — 0 dari 4 stratum lolos
+
+Baseline jarak pre-registered (`cos_knn_1`), satu-sisi, Holm step-down:
+
+| stratum | p | ambang Holm | tolak H₀ |
+|---|---|---|---|
+| q0 | 0,0133 | 0,0125 | **tidak** |
+| q1 | 0,0151 | 0,0167 | tidak (diblokir step-down) |
+| q2 | 0,0715 | 0,0250 | tidak |
+| q3 | 0,2850 | 0,0500 | tidak |
+
+q0 gagal terpaut **0,0008**. Holm bersifat step-down, jadi kegagalan pada p terkecil memblokir
+sisanya.
+
+**Batasan yang harus dinyatakan:** p ini adalah **aproksimasi normal** dari lebar CI
+(`z = mean/(ciW/3,92)`), bukan p eksak. Pada kasus batas seperti q0 ia tidak cukup presisi untuk
+memisahkan 0,0125 dari 0,0133. Uji permutasi akan lebih tepat — **dan sengaja TIDAK dijalankan
+sekarang**, karena menjalankannya setelah melihat hasil ini adalah p-hacking yang dokumen ini ada
+untuk mencegah. Uji permutasi di-pre-deklarasi untuk dataset berikutnya.
+
+### Konsekuensi
+
+Sesuai §7, keputusan tidak berubah: Phase 2 berjalan. Yang berubah adalah klaimnya, dan ia sekarang
+**lebih lemah** dari kedua opsi yang diantisipasi:
+
+> **§6.4 (outcome) LULUS** — koreksi terprediksi menaikkan worst-class coverage +0,0748 pada ukuran
+> set tercocokkan, mengalahkan null teracak. **Gate C (kebaruan) TIDAK TERBUKTI** pada tingkat
+> signifikansi yang di-pre-deklarasi: 0/4 stratum lolos koreksi multiplisitas.
+
+Secara arah, geometri memprediksi δ_y di stratum terlangka (R² +0,453, ter-normalisasi +0,585,
+mengalahkan prevalensi dan baseline jarak pre-registered). Itu menjanjikan tetapi **tidak
+tertegakkan** pada level yang sudah dikomitmenkan.
+
+**Gate C tidak dapat ditegakkan di Pl@ntNet pada daya berapa pun** — 38 kelas per stratum adalah
+batas keras dari 152 kelas yang punya δ_y. Ini memindahkan jalur kritis: **dataset kedua bukan lagi
+opsi validitas eksternal, ia satu-satunya cara menguji gate C dengan benar.** iNaturalist-2018
+punya 8.142 kelas, sehingga daya berhenti menjadi faktor pembatas.
+
+**Status:** dijalankan, prediksi terfalsifikasi, tercatat. Tidak ada run ulang.
+
+---
+
+## ADENDUM (2026-08-07, lebih lambat) — p-value Holm di atas TIDAK BERLANDAS
+
+Ditemukan saat mengkalibrasi uji permutasi untuk dataset berikutnya. Dicatat di sini karena ia
+melemahkan angka yang baru saja dilaporkan di dokumen ini.
+
+**Cacat 1 — pembaginya salah.** p dihitung `z = mean/(ciW/3,92)`. Tetapi `_percentile_ci`
+mengembalikan **persentil sebaran nilai per-split**, bukan CI atas rata-rata. Jadi pembaginya adalah
+sd sebaran, bukan standard error. Rekonstruksi kasus q0 memberi p sign-flip **0,130** versus 0,0133
+yang dilaporkan.
+
+**Cacat 2 — dan memperbaiki Cacat 1 akan lebih buruk.** Mengganti pembagi menjadi
+`sd/√n_splits` akan memperlakukan 100 split sebagai 100 observasi independen. Split-split itu
+**pemakaian ulang 38 kelas yang sama**; sebaran antar-split adalah derau resampling, bukan derau
+sampling dari populasi kelas. Membaginya dengan √100 akan melambungkan signifikansi ~10×.
+
+**Akibatnya kedua uji itu keliru untuk desain ini**, termasuk uji sign-flip atas selisih per-split:
+unit yang bisa ditukar adalah **KELAS**, bukan split. `pcc/eval/tail.py` sudah benar soal ini —
+bootstrap-nya meresample kelas, bukan sampel. Gate C tidak.
+
+**Temuan tambahan.** Null dari selisih berpasangan **bukan nol**. Terukur pada 38 kelas tanpa sinyal:
+selisih teramati +0,109 sementara null permutasi berpusat di −0,102. Jadi kriteria gate C yang
+berlaku, *"CI selisih mengecualikan 0"*, **bukan uji yang valid** — nol bukan nilai null-nya.
+
+**Status angka Holm 0/4 di atas:** tidak berlandas. Ini **tidak** berarti gate C lulus; berarti gate
+C **belum diuji dengan benar**. Verdict "BATASAN SEJATI" pada bagian sebelumnya berdiri pada
+perbandingan reliabilitas-versus-R², yang tidak bergantung pada p-value ini, sehingga tetap berlaku.
+
+**Tidak dijalankan ulang di Pl@ntNet.** Uji permutasi tingkat-kelas
+(`predictability.class_permutation_p`) dipre-deklarasi untuk run berikutnya, bukan dipakai menambal
+run ini. Terkalibrasi: 1.000 kelas tanpa sinyal → p 0,384; 1.000 kelas sinyal lemah → p 0,0066.

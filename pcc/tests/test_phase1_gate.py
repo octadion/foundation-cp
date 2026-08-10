@@ -93,6 +93,12 @@ def test_gateB_pass_when_delta_predictable_from_geometry():
     assert out["gate_B_pass"], out["r2_by_predictor"]["full"]
     # geometry driver (mean_norm) should beat log-prevalence-only -> gate C
     assert out["gate_C_detail"]["log_prevalence_only"]["full_beats_it"]
+    # This fixture gives every class the same quota, so log-prevalence is constant and the
+    # prevalence ablation is a guaranteed win. It must still be REPORTED (the key above)
+    # but flagged vacuous so it cannot count toward the gate-C verdict — otherwise any
+    # balanced dataset passes gate C without being tested.
+    assert out["prevalence_ablation_degenerate"], "constant log-prevalence must be flagged"
+    assert out["gate_C_detail"]["log_prevalence_only"]["vacuous"]
 
 
 def test_gateB_fail_when_delta_is_noise():
