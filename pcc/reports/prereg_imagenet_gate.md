@@ -370,3 +370,131 @@ ImageNet.** §10 tidak lagi memblokir `pcc/method/`.
 Cakupan yang harus melekat pada setiap klaim turunannya: **hasil ini menegakkan bahwa δ_y dapat
 diprediksi dari deskriptor tingkat-kelas ketika jumlah kelas memadai — bukan bahwa geometri embedding
 adalah sumber prediktabilitas itu.** Yang kedua menunggu run φ embedding.
+
+---
+
+## UJI NON-SIRKULAR (2026-08-10) — φ bobot kepala LULUS gate B dan C
+
+Ini menjawab keberatan yang dicatat di bagian sebelumnya sebagai pembatas utama, dan menjawabnya
+dengan uji, bukan dengan argumen.
+
+φ dari `fc.weight` ResNet-50 torchvision (`IMAGENET1K_V2`), 9 fitur geometri keputusan +
+`log_prevalence`. Skor CCC berasal dari **SimCLRv2 + linear probe**; kepala ini **ResNet-50
+tersupervisi**. Dua model berbeda, jadi φ **eksogen** terhadap δ_y.
+
+| | φ ruang-output | φ bobot kepala |
+|---|---|---|
+| eksogen terhadap δ_y | **tidak** | **ya** |
+| derau sampling | ada | **nol** (parameter, bukan estimasi) |
+| butuh sampel kelas | ya | **tidak** |
+| gate B R² | +0,4975 [+0,461; +0,534] | **+0,3880** [+0,345; +0,439] |
+| ter-normalisasi | 0,600 (`r_δ·r_φ` = 0,770) | **0,468** (plafon = `r_δ` = 0,829) |
+| gate C vs jarak | +0,3426, p ≤ 0,001, **84 σ** | **+0,3753, p ≤ 0,001, 83 σ** |
+| gate C vs prevalensi | +0,4902, p ≤ 0,001, **102 σ** | **+0,3710, p ≤ 0,001, 73 σ** |
+| verdict | LULUS | **LULUS** |
+
+`r_φ` untuk keluarga kepala **tidak** diambil dari screen stabilitas: fitur `w_y` mendapat 1,0 secara
+konstruksi karena tidak bergantung pembagian data sama sekali. Itu tautologi, bukan mutu, jadi
+plafonnya `r_δ` saja. Menggabungkannya akan membengkakkan plafon secara palsu dan membuat R²
+ter-normalisasi terlihat lebih buruk dari seharusnya.
+
+### Struktur internalnya BERKEBALIKAN, dan itu poinnya
+
+Selisih berpasangan gate C adalah `R²(full) − R²(ablasi)`, jadi R² ablasi dapat dibaca balik:
+
+```
+ruang-output:  0,4975 − 0,3426  ->  prof_knn_1 sendirian  ~ 0,155
+bobot kepala:  0,3880 − 0,3753  ->  w_cos_knn_1 sendirian ~ 0,013
+```
+
+Di keluarga ruang-output, sebagian besar prediktabilitas datang dari **ringkasan skor langsung**
+(`conf_mean`, `leak_*`, `margin_mean`) — itulah sebabnya ia tidak dapat menegakkan klaim geometri. Di
+keluarga bobot kepala, jarak-tetangga-terdekat tunggal menjelaskan **nyaris nol**, dan yang menjelaskan
+adalah **geometri multi-fitur**: norma bobot, jarak ke rerata, sebaran ketetanggaan, margin ke rival
+terdekat, kNN multi-skala.
+
+Jadi kedua keluarga lolos, tetapi **karena alasan yang berbeda**, dan hanya yang kedua konsisten
+dengan klaim geometrik.
+
+### Temuan yang lebih kuat dari yang diantisipasi
+
+φ berasal dari model yang **tidak pernah melihat** skor yang mendefinisikan δ_y, dan tetap
+memprediksinya pada 73–83 simpangan baku dari null permutasi. Implikasinya melampaui metode ini:
+
+> Struktur tingkat-kelas yang menentukan threshold conformal **bukan milik jaringan tertentu** — ia
+> properti ruang label, yaitu keterkacauan visual antar kelas. Kelas yang mudah tertukar mudah
+> tertukar bagi kedua model, dan itulah yang membuat geometri satu model memprediksi δ_y model lain.
+
+Itu klaim yang jauh lebih kuat, dan lebih berguna, daripada "geometri model ini memprediksi threshold
+model ini sendiri". Ia juga memberi jalan deployment: δ̂ dapat dihitung dari kepala klasifier **apa pun**
+yang tersedia, tanpa citra dan tanpa label kelas sasaran.
+
+### Yang MASIH belum tertegakkan
+
+1. **§6.4 belum dijalankan untuk keluarga kepala.** Gate B/C menunjukkan δ_y terprediksi; belum
+   ditunjukkan bahwa δ̂ dari `w_y` **membeli ekuitas coverage**. Itu uji outcome-nya, dan ia yang
+   berikutnya.
+2. **ImageNet berimbang.** Klaim aplikasi ekor-panjang tetap butuh Pl@ntNet/iNat — dan di sana daya
+   ujinya tidak memadai (90 dan 63 kelas layak). Ketegangan itu belum terselesaikan.
+3. **Ketidakcocokan model perlu dijawab di paper, bukan disembunyikan.** Reviewer akan bertanya
+   mengapa geometri ResNet-50 memprediksi threshold SimCLR+probe. Jawaban yang didukung data ada di
+   atas, tetapi ia klaim substantif dan harus dinyatakan sebagai klaim, bukan diselipkan.
+4. **Baseline belum dijalankan.** API-nya sudah didaftar (lihat `release_audit.md`), belum dipanggil.
+
+---
+
+## AMANDEMEN 11 — pra-deklarasi §6.4 keluarga kepala + kesetiaan baseline (2026-08-10)
+
+Ditulis **sebelum** run apa pun. Dua sel baru di notebook 05 (12c dan 12d), tujuh jalur logika
+sudah diuji-kering sintetik.
+
+### 11a. §6.4 untuk φ kepala — apa yang dihitung sebagai lulus
+
+Desainnya **identik** dengan §6.4 ruang-output (Amandemen 8), hanya δ̂ yang berganti sumber:
+ekuitas worst-class pada ukuran set tercocokkan, λ dipilih pada kelas TRAIN saja, 20 belahan kelas.
+Tidak ada satu pun parameter yang disetel ulang untuk keluarga kepala — kalau disetel, hasilnya
+bukan uji lagi.
+
+| verdict | syarat |
+|---|---|
+| **LULUS** | `observed.ci_low > 0` **dan** `observed.ci_low > shuffled_null.ci_high` |
+| **TIDAK POSITIF** | selain itu |
+| **TIDAK TERBACA** | `oracle_ceiling ≤ 0.02` — tanpa ruang oracle metriknya tidak bisa positif, jadi angkanya tidak boleh dibaca sebagai bukti apa pun (pelajaran desain 4 yang lama) |
+
+Empat kontrol dilaporkan bersamaan, bukan opsional: `observed`, `shuffled_null`, `oracle_ceiling`,
+`raw_delta_lambda1`. Tiga terakhir yang membuat yang pertama bisa ditafsirkan.
+
+**Prediksi, dicatat supaya bisa salah.** Kuperkirakan §6.4 kepala **positif tetapi lebih kecil**
+dari ruang-output (+0,1173), kira-kira **+0,04 sampai +0,09**, dengan fraksi ruang oracle terpakai
+**lebih rendah** dari 76%. Alasannya: R² kepala 0,3880 < 0,4975, dan δ̂ yang lebih berderau
+menerjemah jadi koreksi yang lebih konservatif setelah penyusutan. Kalau ia justru **melampaui**
+ruang-output, prediksiku salah dan itu yang dicatat — bukan alasannya yang direvisi.
+
+**Konsekuensi yang sudah ditetapkan:**
+
+- **Lulus** → tulang belakang paper lengkap dengan deskriptor eksogen: δ_y terprediksi **dan**
+  koreksinya membeli ekuitas, keduanya dari geometri yang tidak menyentuh skor. `pcc/method/`
+  dibangun di atas keluarga kepala.
+- **Tidak positif** → klaimnya turun pangkat menjadi **prediktabilitas tanpa manfaat terbukti**,
+  dan itu yang ditulis. Ruang-output tidak boleh dipakai sebagai gantinya untuk klaim geometri,
+  karena sirkularitasnya sudah terukur (0,155 dari 0,497 dari satu fitur jarak).
+- **Tidak terbaca** → dilaporkan sebagai desain yang gagal memberi ruang, bukan sebagai kegagalan
+  metode. Desain diperbaiki, lalu dijalankan ulang — sekali, dengan perbaikan dinyatakan.
+
+### 11b. Baseline — dipanggil, dan kesetiaannya dinyatakan di muka
+
+`standard_conformal`, `classwise_conformal`, `clustered_conformal` dipanggil pada **array skor yang
+sama** dengan yang dipakai semua gerbang di atas. Nilai kembaliannya **belum diketahui**, jadi
+setiap fungsi dipanggil lalu bentuk kembaliannya dicetak sebelum metrik dihitung. Menebak signature
+sudah dua kali salah di sesi ini (`gdown.download_folder`, modul `clustered_conformal`); polanya
+tidak diulang. Tiap panggilan punya penjaga sendiri, jadi satu kegagalan tidak menghapus yang lain.
+
+**Kesetiaan yang harus melekat pada angkanya, dan sekarang dicetak oleh selnya sendiri:** skor kita
+adalah subsample terstratifikasi (`MAX_ROWS = 250_000` dari 1.153.051 baris), lalu 30% darinya jadi
+CAL. Jadi reproduksi ini **tidak akan sama persis** dengan angka terbit CCC. Ia sahih untuk
+perbandingan **internal** (metode kita vs baseline, array identik); ia **belum** sahih sebagai klaim
+"kami mereproduksi angka mereka". Untuk tabel paper, `MAX_ROWS = None`.
+
+Konsekuensinya untuk sitiran: kalau reproduksi pada dump penuh cocok dengan angka terbit, setup-nya
+bisa disitir langsung dan baseline kita kredibel. Kalau tidak cocok, **selisihnya dilaporkan** dan
+angka kita berdiri sebagai reimplementasi, bukan sebagai angka mereka.
