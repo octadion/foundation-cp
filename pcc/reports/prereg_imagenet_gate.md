@@ -168,3 +168,205 @@ kesalahan yang sama dengan Amandemen 7 di Pl@ntNet, dan kali ini dicegah di depa
 ---
 
 **Status:** ditulis, dua koreksi tercatat. Menunggu satu run `notebooks/05_imagenet_gate.ipynb`.
+
+---
+
+## HASIL SURVEI DUMP (2026-08-07) — PREMIS LTC TIDAK TERPENUHI
+
+Dijalankan dan **berhenti di sel 4**, sesuai desain. Ini keluaran yang §8 sebut sebagai kemungkinan,
+dan ia sebuah **temuan**, bukan kegagalan teknis.
+
+| dump | n | K | median sampel/kelas | kelas dengan ≥84 sampel |
+|---|---|---|---|---|
+| plantnet **test** | 31.112 | 1.081 | 3 | **90** |
+| plantnet cal | 21.783 | 1.081 | 2 | 66 |
+| inaturalist **test** | 46.227 | 8.142 | 2 | 63 |
+| inaturalist cal | 32.359 | 8.142 | 2 | **0** |
+
+Ambang 84 berasal dari `n_cal = 25 / FRAC_CAL = 0,30`: `n_cal` primer harus tercapai **di dalam**
+porsi CAL dari pembagian tiga-arah, bukan di keseluruhan dump.
+
+### iNaturalist-2018 lebih buruk dari Pl@ntNet, bukan lebih baik
+
+8.142 kelas tetapi median **2** sampel/kelas, dan dump `cal`-nya punya **NOL** kelas yang memenuhi
+syarat. Rekomendasi awal untuk pindah ke iNat didasarkan pada "8.142 kelas → daya uji berhenti jadi
+pembatas"; itu **salah**, dan koreksinya kini terukur, bukan terinferensi. Daya uji gate C ditentukan
+oleh **kelas yang punya cukup sampel KALIBRASI**, bukan oleh jumlah kelas.
+
+### Temuan yang layak masuk paper
+
+> Dataset yang dipakai prior art untuk conformal prediction ekor-panjang **secara struktural tidak
+> dapat menopang uji berdaya untuk predictability tingkat-kelas.** Properti yang menjadikannya
+> ekor-panjang — sedikit sampel per kelas — adalah properti yang sama yang mengeringkan ujinya.
+> Terukur: kelas yang memenuhi syarat 90 (Pl@ntNet), 63 (iNat-2018), versus 1.000 pada ImageNet
+> berimbang.
+
+Ini pernyataan tentang **praktik evaluasi bidangnya**, bukan hanya tentang metode kami, dan ia
+menjelaskan mengapa batas 38-kelas/stratum di Pl@ntNet tidak bisa diangkat dengan memilih dataset
+ekor-panjang lain.
+
+### Konsekuensi, sesuai §8
+
+Lanjut ke dump **ImageNet CCC** seperti yang sudah dipre-deklarasi. Nilai-nilai primer
+(`ALPHA_PRIMARY`, `N_CAL_PRIMARY`, `N_BOOT_CLASS`, `N_PERM_CLASS`, ambang stabilitas) **tidak
+disentuh** — hanya sumber datanya yang berpindah, dan perpindahan itu sudah tertulis di §8 sebelum
+survei dijalankan.
+
+### Cacat notebook yang diperbaiki di sepanjang jalan
+
+1. **Sel 4 hanya memperingatkan, tidak berhenti.** Kegagalan premis lalu muncul di sel 7 sebagai
+   "deskriptor tidak stabil" (puncak 0,706) padahal sebabnya "sampel per kelas tidak cukup untuk
+   mengestimasi deskriptor apa pun" — dengan DESC 40% dari median 3, separuh-split menyisakan ~0,6
+   sampel/kelas. Sel 4 sekarang `assert` dan berhenti; sel 7 melaporkan anggaran sampelnya.
+2. **Pola unduhan ditebak.** Dipakai `gdown.download_folder(id=...)` padahal notebook 00 sudah
+   membuktikan `gdown <id> -O x.zip` lewat CLI. ID-nya menunjuk ZIP, bukan folder.
+3. **Lokasi salah.** Dibuat direktori baru padahal notebook 00 menaruh skor di
+   `released_scores/<dataset>`, sehingga dump Pl@ntNet yang sudah ada akan terunduh ulang.
+4. **Pencocokan skor/label hanya menangani konvensi LTC** (`_softmax`/`_labels`). Berkas CCC tidak
+   memakainya, jadi jalur CCC akan gagal tanpa menemukan apa pun. Sekarang ada fallback generik
+   (2-D + 1-D sepanjang sama di direktori sama) dan inventaris lengkap saat gagal.
+5. **Varian focal-loss bernama identik** di subdirektori berbeda; survei kini menandai variannya dan
+   mengabaikan yang bukan `cross_entropy`.
+
+---
+
+## ISI DUMP CCC IMAGENET — audit salah sepuluh kali (2026-08-07)
+
+Terbaca dari header `.npz` tanpa dekompresi:
+
+| anggota | bentuk | dtype |
+|---|---|---|
+| `softmax.npy` | **(1.153.051, 1.000)** | float32 |
+| `labels.npy` | (1.153.051,) | int64 |
+
+`release_audit.md` mencatat `(115301, 1000)` — **sepersepuluh** dari yang sebenarnya. Angka itu
+dipakai di §2 dokumen ini untuk mengklaim "~115 sampel/kelas". Yang benar **~1.153 sampel/kelas**.
+
+Arah kesalahannya menguntungkan (premis butuh ≥84/kelas dan tersedia 13× lipat), tetapi angka di §2
+salah dan dikoreksi di sini. 1.153.051 mendekati 90% ImageNet-1k train (1.281.167), jadi dump ini
+kemungkinan skor pada porsi besar train, bukan val 50.000.
+
+### Dua konsekuensi yang harus ditangani sebelum dijalankan
+
+**Memori.** 1.153.051 × 1.000 float32 = **4,61 GB**, dan salinan turunan (`thr_lac`, entropi,
+`np.partition` di `_top2_margin`) menambah beberapa GB lagi di atas RAM Colab ~12,7 GB. Sesi ini
+sudah pernah crash karena alokasi besar (48 GB di gate checkpoint), jadi ini diperbaiki lebih dulu:
+dump di-`mmap`, lalu **hanya subsample yang dimaterialkan** — 4,61 GB → ~1 GB pada `MAX_ROWS =
+250.000`.
+
+**Subsampling BUKAN perubahan kriteria**, dan diambil sebagai **FRAKSI per kelas, bukan cap tetap.**
+Alasannya bukan estetika: cap tetap membuat setiap hitungan kelas **persis sama** → `log_prevalence`
+konstan → ablasi prevalensi menjadi **hampa** dan gate C kehilangan satu lengannya. Fraksi
+mempertahankan struktur prevalensi. Terverifikasi pada dry-run: sd(`log_prevalence`) = 0,004, jadi
+ablasi prevalensi **tetap bisa diuji**. Anggarannya menyisakan ~250 sampel/kelas terhadap premis
+≥84.
+
+**`log_prevalence` diambil dari hitungan SEJATI seluruh dump**, bukan dari hitungan split DESC. §3
+dokumen ini sudah menyatakan prinsipnya ("supaya ablasi prevalensi tidak sekadar mengkodekan kuota
+split") tetapi implementasinya memakai `cnt_desc` — yang dengan subsampling **adalah** kuota. Kini
+memakai `cnt_full`.
+
+### Lima bug notebook yang ditemukan sebelum run berhasil
+
+Semuanya kelas yang sama — **mengasumsikan alih-alih memverifikasi**, di kode yang tidak dapat
+dijalankan penulisnya:
+
+1. **Pola `gdown` ditebak** (`download_folder(id=...)`) padahal notebook 00 sudah membuktikan
+   `gdown <id> -O x.zip` lewat CLI. ID menunjuk ZIP, bukan folder.
+2. **Lokasi salah** — direktori baru dibuat padahal notebook 00 memakai `released_scores/<ds>`,
+   sehingga dump yang sudah ada tak terlihat dan akan terunduh ulang.
+3. **Dua saklar untuk satu tujuan** (`DO_CCC` + `SOURCE`), dengan **default yang sudah diketahui
+   gagal** — setiap run default berakhir di assert. Saklarnya dihapus; semua sumber disurvei sekaligus.
+4. **`.npz` dilewati** karena pencocokan ekstensi literal `.zip`/`.tar`. `.npz` *adalah* zip;
+   unduhan 4,62 GB berhasil penuh lalu diabaikan tanpa suara.
+5. **Pencocokan generik ditulis sebagai FALLBACK** (`if not pairs`). Dump LTC selalu menghasilkan
+   pasangan, jadi fallback tak pernah jalan dan berkas CCC diabaikan — tabel survei kehilangan baris
+   `ccc` sepenuhnya. Either/or di tempat yang seharusnya both.
+
+Bug 4 dan 5, plus sufiks `.npy` pada indeks `NpzFile`, ditemukan oleh **dry-run sintetik**, bukan
+oleh run pengguna. Itu disiplin yang seharusnya diterapkan sejak awal dan kini diterapkan konsisten.
+
+---
+
+## HASIL (2026-08-10) — KEEMPAT GERBANG LULUS, dengan cakupan yang harus melekat
+
+`reports/05_imagenet_gate_ccc_imagenet.json`. Dump CCC ImageNet, 1.153.051 baris disubsample
+terstratifikasi ke 250.013 (21,7% per kelas), 1.000 kelas, akurasi top-1 0,7769.
+
+| | Pl@ntNet (φ embedding) | ImageNet (φ ruang-output) |
+|---|---|---|
+| kelas layak | 90–152 | **1.000** |
+| fitur stabil ≥0,90 | **2 / 15** | **8 / 15** |
+| §3.3 terpenuhi | **tidak** | **ya** |
+| gate A `r_δ` | 0,754 | **0,829** [0,827; 0,831] |
+| `r_φ` | 0,805 | **0,929** |
+| plafon gabungan | 0,607 | **0,770** |
+| gate B R² | +0,303 (antar-split) | **+0,4975** [+0,461; +0,534] (bootstrap KELAS) |
+| gate B ter-normalisasi | 0,402 | **0,600** [0,555; 0,643] |
+| gate C | 0/4 stratum (p tak berlandas) | **LULUS, kedua ablasi** |
+| §6.4 | +0,0748, **19%** plafon oracle | **+0,1173**, **76%** plafon oracle |
+
+Gate C, null permutasi tingkat-kelas, n_perm = 1.000:
+
+| ablasi | observed | null (sd) | jarak dari null | p | Holm |
+|---|---|---|---|---|---|
+| `distance_only` (`prof_knn_1`) | +0,3426 | −0,0104 (0,0042) | **84 sd** | 0,0010 | tolak |
+| `log_prevalence_only` | +0,4902 | −0,0104 (0,0049) | **102 sd** | 0,0010 | tolak |
+
+p menyentuh lantai `1/(n_perm+1)`, jadi nilai sebenarnya lebih kecil dan tak teresolusi.
+
+### Yang TERTEGAKKAN
+
+**Kegagalan gate B/C di Pl@ntNet adalah persoalan DAYA UJI, bukan absennya efek.** Ini konsekuensi
+yang sudah dipatok di §8 sebelum run, dan ia terpenuhi: dengan 1.000 kelas alih-alih 38 per stratum,
+efek yang sama terdeteksi pada ~84–102 simpangan baku dari null.
+
+Dan §3.3 — prasyarat yang tidak pernah terpenuhi di Pl@ntNet — **terpenuhi di sini**: 8 dari 15 fitur
+melewati stabilitas 0,90, dengan median 50 sampel/kelas per separuh-split versus ~0,6 di Pl@ntNet.
+Konsekuensinya asimetri Amandemen 5 ("gate-B FAIL itu ambigu") **tidak lagi diperlukan** untuk dataset
+ini.
+
+### Yang TIDAK tertegakkan, dan ini pembatas utamanya
+
+**Predictability di sini didominasi RINGKASAN SKOR langsung, bukan geometri kelas.** Baseline jarak
+`prof_knn_1` — satu-satunya analog geometri kelas sejati dalam keluarga ini — **sendirian hanya
+menjelaskan ~0,155** dari R² 0,497. Sisanya dari `conf_mean`, `leak_max`, `leak_top5`, `margin_mean`:
+ringkasan distribusi skor.
+
+Dan lebih dalam: **φ ruang-output dan δ_y keduanya diturunkan dari matriks skor model yang SAMA**,
+hanya dari sampel terpisah. `conf_mean` pada DESC dan `q̂_y` pada CAL adalah dua estimasi parameter
+distribusi yang sama. Memprediksi satu dari yang lain nyaris dijamin berhasil bila kelasnya punya
+distribusi skor yang stabil sama sekali. Jadi gate B di sini **lebih dekat ke estimasi distribusional
+daripada ekstrapolasi geometrik**.
+
+§4 dokumen ini sudah menyatakan "hasil ini tidak otomatis berpindah ke deskriptor embedding", tetapi
+kalimat itu terlalu lunak. Yang tepat: **klaim geometri embedding tidak tertegakkan oleh run ini**, dan
+langkah berikutnya (φ embedding lewat encoder SimCLRv2 publik) adalah yang menutup jaraknya.
+
+### Tiga cacat pelaporan, diperbaiki
+
+1. **Teks caveat SALAH.** Ia mengklaim "ablasi prevalensi HAMPA, gate C menguji HANYA lawan jarak",
+   sementara run melaporkan `prevalence_ablation_degenerate: false` dan **kedua** ablasi diuji
+   (log-range prevalensi 0,594). Caveat itu string yang ditulis di muka, bukan diturunkan dari run —
+   persis kelas klaim basi yang menyesatkan reviewer. Caveat kini **diturunkan dari hasil**.
+2. **Baris α = 0,01 tidak bermakna** dan dilaporkan berdampingan seolah setara. `feasible_classes: 0`:
+   kuantil conformal butuh ≥99 sampel/kelas, `n_cal = 25` hanya 25, jadi "kuantil ke-99 dari 25 titik"
+   adalah maksimumnya. §8.8 terpenuhi di **α = 0,10 dan 0,05** (butuh ≥19), **tidak** di 0,01 — tetap
+   kemajuan besar atas Pl@ntNet yang hanya sanggup 0,10. Baris tak-bermakna kini ditandai.
+3. **Jalur dump dicatat relatif** (`../../../ccc_npy/...`), tidak reproducible. Kini absolut.
+
+### Item terbuka
+
+Reproduksi **Clustered CP** gagal impor: `cannot import name 'clustered_conformal' from
+'utils.clustering_utils'`. Nama fungsinya berbeda dari yang kuasumsikan. Bukan pemblokir gerbang, tapi
+verifikasi-vs-angka-terbit **belum berjalan**, jadi kesetiaan setup belum terbukti.
+
+### KEPUTUSAN PHASE 1
+
+Gate A, B, C dan §6.4 semuanya lulus pada uji primer yang di-pre-deklarasi, dengan §3.3 terpenuhi dan
+koreksi multiplisitas diterapkan. **Phase 1 dicatat LULUS untuk keluarga deskriptor ruang-output pada
+ImageNet.** §10 tidak lagi memblokir `pcc/method/`.
+
+Cakupan yang harus melekat pada setiap klaim turunannya: **hasil ini menegakkan bahwa δ_y dapat
+diprediksi dari deskriptor tingkat-kelas ketika jumlah kelas memadai — bukan bahwa geometri embedding
+adalah sumber prediktabilitas itu.** Yang kedua menunggu run φ embedding.

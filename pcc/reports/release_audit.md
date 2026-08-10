@@ -306,3 +306,44 @@ On Colab, before Phase 0 extraction:
 3. For ImageNet, confirm the SimCLR `r152_3x_sk1` download + conversion path
    resolves, and that extracted representations re-fit a linear probe reproducing
    the released ImageNet scores (sanity, not a baseline).
+
+---
+
+## API rilis CCC — DIDAFTAR, bukan ditebak (2026-08-10)
+
+Percobaan pertama mengimpor `clustered_conformal` dari `utils.clustering_utils` dan gagal. Nama
+fungsinya **benar**, **modulnya** yang salah ditebak. Daftar berikut dibaca langsung dari repo
+(`notebooks/05` mendaftarkan `vars(module)` dan menyaring yang `__module__`-nya cocok), jadi ia fakta,
+bukan ingatan.
+
+**`utils.conformal_utils`** — di sinilah baseline-nya berada:
+
+| Fungsi | Baseline yang dilayani |
+|---|---|
+| `standard_conformal(cal_scores_all, cal_labels, val_scores_all, val_labels, alpha, exact_coverage=False)` | split CP marginal |
+| `classwise_conformal(totalcal_scores_all, totalcal_labels, val_scores_all, val_labels, alpha, num_classes, default_qhat=inf, regularize=False, exact_coverage=False)` | classwise / Mondrian CP |
+| `clustered_conformal(totalcal_scores_all, totalcal_labels, alpha, val_scores_all=None, val_labels=None, frac_clustering='auto', num_clusters='auto', split='random', exact_coverage=False, seed=0)` | **Clustered CP** (Ding et al., NeurIPS 2023) |
+| `get_APS_scores_all(softmax_scores, randomize=True, seed=0)` | **APS** |
+| `get_RAPS_scores_all(softmax_scores, lmbda, kreg, randomize=True, seed=0)` | **RAPS** |
+| `compute_all_metrics(val_labels, preds, alpha, cluster_assignments=None)` | metrik bersama untuk semuanya |
+
+Pendukung yang juga tersedia: `compute_class_specific_qhats`, `compute_cluster_specific_qhats`,
+`get_conformal_quantile`, `create_prediction_sets`, `create_classwise_prediction_sets`,
+`reconformalize`, `split_X_and_y`, `random_split`, `get_clustering_parameters`,
+`compute_class_specific_coverage`, `compute_coverage`, `compute_avg_set_size`.
+
+**`utils.clustering_utils`** memuat *mesin* clustering-nya, bukan baseline-nya:
+`embed_all_classes(scores_all, labels, q=[0.5,...,0.9], return_cts=False)`,
+`quantile_embedding(samples, q=...)`, `sample_from_empirical_distr`, plus dua generator data sintetik.
+
+### Konsekuensi untuk beban baseline
+
+Perkiraan awalku "Tier-2: 0 dari 9, masing-masing perlu reproduksi dari kertas" **terlalu pesimis dua
+kali**. Yang tersedia sebagai kode siap-jalan: **standard CP, classwise CP, Clustered CP, skor APS,
+skor RAPS**, dengan `compute_all_metrics` sebagai metrik bersama. Tetap perlu dijalankan dan
+diverifikasi terhadap angka terbit — kode yang ada tidak sama dengan angka yang terbukti cocok —
+tetapi tidak perlu ditulis ulang.
+
+Yang masih benar-benar perlu implementasi dari kertas: **RC3P, TACP, CFCP**, dan Fuzzy Classwise
+CP / Interp-Q dari repo LTC (belum didaftar dengan cara yang sama — lakukan hal serupa sebelum
+mengasumsikan API-nya).
