@@ -312,9 +312,17 @@ On Colab, before Phase 0 extraction:
 ## API rilis CCC — DIDAFTAR, bukan ditebak (2026-08-10)
 
 Percobaan pertama mengimpor `clustered_conformal` dari `utils.clustering_utils` dan gagal. Nama
-fungsinya **benar**, **modulnya** yang salah ditebak. Daftar berikut dibaca langsung dari repo
-(`notebooks/05` mendaftarkan `vars(module)` dan menyaring yang `__module__`-nya cocok), jadi ia fakta,
-bukan ingatan.
+fungsinya **benar**, **modulnya** yang salah ditebak.
+
+> **KOREKSI (2026-08-11).** Versi sebelumnya paragraf ini mengklaim daftar di bawah dibaca oleh
+> `notebooks/05` lewat `vars(module)`. **Tidak benar** — sel itu belum pernah berhasil mengimpor
+> apa pun; run 2026-08-11 masih melaporkan `ModuleNotFoundError: No module named 'utils'` **setelah**
+> clone-nya sukses, artinya `utils/` tidak berada di jalur yang tertulis di sini. Daftarnya berasal
+> dari clone audit 2026-07-24 ke `refs/` (kini tidak ada di mesin). Sumbernya sah; **atribusinya**
+> salah, dan atribusi itulah yang membuat jalur `utils.` diperlakukan sebagai fakta terverifikasi.
+> Nama modul dan signature di bawah **belum terverifikasi terhadap repo yang berjalan**. Notebook 05
+> kini menemukan akar impornya lewat pencarian berkas dan mencetak signature sebelum memanggil;
+> tabel ini diperbarui dari cetakan itu, bukan sebaliknya.
 
 **`utils.conformal_utils`** — di sinilah baseline-nya berada:
 

@@ -498,3 +498,77 @@ perbandingan **internal** (metode kita vs baseline, array identik); ia **belum**
 Konsekuensinya untuk sitiran: kalau reproduksi pada dump penuh cocok dengan angka terbit, setup-nya
 bisa disitir langsung dan baseline kita kredibel. Kalau tidak cocok, **selisihnya dilaporkan** dan
 angka kita berdiri sebagai reimplementasi, bukan sebagai angka mereka.
+
+---
+
+## HASIL §6.4 KELUARGA KEPALA (2026-08-11) — LULUS, dan prediksi Amandemen 11 TEPAT
+
+| besaran | ruang-output | **kepala `w_y`** |
+|---|---|---|
+| gate B R² | +0,4975 [+0,461, +0,534] | **+0,3880** [+0,345, +0,439] |
+| §6.4 observed | +0,1173 [+0,0948, +0,1398] | **+0,0643** [+0,0536, +0,0751] |
+| null teracak | −0,0490 | −0,0630 |
+| plafon oracle | +0,1542 | +0,1542 (identik — plafonnya sifat data) |
+| ruang oracle terpakai | 76% | **42%** |
+| δ̂ mentah, λ=1 | −0,2343 | **−0,5079** |
+| λ dari TRAIN | 0,088 | 0,095 |
+
+**Prediksi Amandemen 11 diverifikasi.** Kuprediksi **+0,04 sampai +0,09** dengan fraksi ruang oracle
+**di bawah 76%**; hasilnya +0,0643 dan 42%. Kedua sisi tepat, dan mekanisme yang kuajukan juga
+terkonfirmasi lewat kolom `raw_delta_lambda1`: δ̂ kepala yang lebih berderau **merugikan dua kali
+lebih dalam** sebelum disusutkan (−0,508 vs −0,234), persis alasan mengapa manfaat akhirnya lebih
+kecil. Ini prediksi pertama di proyek ini yang benar setelah dua yang salah (ramalan §6.4 sintetik,
+dan Amandemen 9); dicatat sebagai satu prediksi tepat, bukan sebagai pola.
+
+### Apa yang sekarang tertegakkan
+
+Untuk deskriptor yang **eksogen** — parameter dari model LAIN, tanpa satu pun sampel berlabel, tanpa
+citra, tanpa GPU — ketiga mata rantai lengkap pada dataset dengan daya uji memadai (1000 kelas):
+
+1. δ_y **terprediksi** dari `w_y`: R² +0,3880, CI kelas jauh di atas nol;
+2. prediksinya **bukan** dari prediktor trivial: gate C lolos lawan jarak (+0,3753, 83σ) **dan**
+   prevalensi (+0,3710, 73σ), Holm-terkoreksi, p ≤ 0,001 keduanya;
+3. koreksinya **membeli ekuitas**: worst-class +0,0643 pada ukuran set tercocokkan, di atas nol dan
+   di atas null teracak, memakai 42% ruang yang tersedia bagi oracle.
+
+Itu tulang belakang klaim ekstrapolasi. `pcc/method/` dibangun di atas keluarga kepala.
+
+### Yang tetap harus dinyatakan sebagai batas, bukan diselipkan
+
+- **42%, bukan 76%.** Deskriptor eksogen membeli lebih sedikit daripada deskriptor sirkular. Itu
+  harga kejujurannya, dan angkanya harus muncul di paper berdampingan, bukan hanya yang besar.
+- **δ̂ mentah merugikan berat** (−0,508). Penyusutan bukan hiasan; tanpa λ dari TRAIN, metode ini
+  merusak worst-class. Aturan pemilihan λ adalah bagian dari metode, bukan detail implementasi.
+- **ImageNet berimbang.** Klaim ekor-panjang belum terselesaikan (lihat item terbuka di atas).
+
+---
+
+## DUA BUG BASELINE (2026-08-11) — keduanya kesalahan yang sama, diulang
+
+Baseline gagal: `ModuleNotFoundError: No module named 'utils'`, padahal clone-nya sukses.
+
+1. **Urutan salah.** Sel baseline (12d) berjalan **sebelum** sel yang meng-clone repo (sel 13). Sel
+   12d memasang `/content/ccc` ke `sys.path` tetapi tidak pernah meng-clone apa pun. Konsumen
+   ditempatkan di depan penyedianya.
+2. **Jalur impor diasumsikan.** Bahkan di sel 13, clone sukses lalu `import utils.conformal_utils`
+   gagal — jadi `utils/` **tidak** berada di tempat yang dicatat `release_audit.md`. Aku menebak
+   lagi, di kode yang tidak bisa kujalankan sendiri.
+
+Ini pola yang sama dengan `gdown.download_folder` dan modul `clustered_conformal`: **mengasumsikan,
+bukan memeriksa.** Perbaikannya struktural, bukan tambal: `ensure_ccc()` meng-clone sekali lalu
+**mencari** `conformal_utils.py` di dalam repo dan memasang induk direktorinya ke `sys.path`, lalu
+melaporkan nama paket dari temuan itu. Kedua sel memakai satu fungsi ini, dan `ensure_ccc` kini
+berada sebelum keduanya. Kalau berkasnya tidak ada, isi repo dicetak — supaya kesalahannya bisa
+dibetulkan sekali, bukan ditebak lagi. Signature tiap fungsi juga dicetak sebelum dipanggil, jadi
+kalau daftar di `release_audit.md` keliru, itu terlihat, bukan tersembunyi di balik `TypeError`.
+
+Diuji-kering dengan layout yang **sengaja berbeda** dari yang tercatat (`code/srcutils/`, paket
+bukan bernama `utils`): penemuannya berhasil, baseline terpanggil, sel penemuan API ikut memakai
+paket yang sama. Lima jalur, termasuk berkas hilang dan repo absen.
+
+### Satu koreksi pada `release_audit.md`
+
+Daftar API di sana mengklaim dibaca oleh `notebooks/05` lewat `vars(module)`. **Tidak.** Sel itu
+belum pernah berhasil mengimpor apa pun. Daftarnya berasal dari clone audit 2026-07-24 ke `refs/`
+(kini tidak ada di mesin). Sumbernya sah, atribusinya salah — dan atribusi yang salah itu yang
+membuatku memperlakukan jalur `utils.` sebagai fakta terverifikasi padahal bukan.
