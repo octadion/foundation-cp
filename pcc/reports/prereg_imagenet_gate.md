@@ -550,9 +550,15 @@ Baseline gagal: `ModuleNotFoundError: No module named 'utils'`, padahal clone-ny
 1. **Urutan salah.** Sel baseline (12d) berjalan **sebelum** sel yang meng-clone repo (sel 13). Sel
    12d memasang `/content/ccc` ke `sys.path` tetapi tidak pernah meng-clone apa pun. Konsumen
    ditempatkan di depan penyedianya.
-2. **Jalur impor diasumsikan.** Bahkan di sel 13, clone sukses lalu `import utils.conformal_utils`
-   gagal — jadi `utils/` **tidak** berada di tempat yang dicatat `release_audit.md`. Aku menebak
-   lagi, di kode yang tidak bisa kujalankan sendiri.
+2. ~~**Jalur impor diasumsikan.**~~ **DIAGNOSIS INI SALAH — dikoreksi 2026-08-12.** Kusimpulkan
+   `utils/` tidak berada di tempat yang dicatat `release_audit.md`. Run berikutnya membuktikan
+   sebaliknya: `/content/ccc/utils/conformal_utils.py`, paket `utils`, **persis** seperti yang
+   tercatat. Penyebabnya **tunggal**, yaitu bug urutan di atas: `sys.path.insert` atas direktori yang
+   belum ada membuat Python menyimpan entri itu sebagai tidak valid di `sys.path_importer_cache`,
+   sehingga clone di sel 13 sesudahnya tetap gagal diimpor. `importlib.invalidate_caches()` akan
+   memperbaikinya. Satu bug, dua gejala — dan aku memperlakukan gejala kedua sebagai bukti bahwa
+   dokumen yang benar itu salah. Perbaikan strukturalnya tetap sahih (urutan dibetulkan, dan
+   penemuan jalur lebih kuat daripada asumsi), tetapi **alasan kedua yang kutulis tidak ada.**
 
 Ini pola yang sama dengan `gdown.download_folder` dan modul `clustered_conformal`: **mengasumsikan,
 bukan memeriksa.** Perbaikannya struktural, bukan tambal: `ensure_ccc()` meng-clone sekali lalu

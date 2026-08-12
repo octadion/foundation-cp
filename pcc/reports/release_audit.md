@@ -314,15 +314,23 @@ On Colab, before Phase 0 extraction:
 Percobaan pertama mengimpor `clustered_conformal` dari `utils.clustering_utils` dan gagal. Nama
 fungsinya **benar**, **modulnya** yang salah ditebak.
 
-> **KOREKSI (2026-08-11).** Versi sebelumnya paragraf ini mengklaim daftar di bawah dibaca oleh
-> `notebooks/05` lewat `vars(module)`. **Tidak benar** — sel itu belum pernah berhasil mengimpor
-> apa pun; run 2026-08-11 masih melaporkan `ModuleNotFoundError: No module named 'utils'` **setelah**
-> clone-nya sukses, artinya `utils/` tidak berada di jalur yang tertulis di sini. Daftarnya berasal
-> dari clone audit 2026-07-24 ke `refs/` (kini tidak ada di mesin). Sumbernya sah; **atribusinya**
-> salah, dan atribusi itulah yang membuat jalur `utils.` diperlakukan sebagai fakta terverifikasi.
-> Nama modul dan signature di bawah **belum terverifikasi terhadap repo yang berjalan**. Notebook 05
-> kini menemukan akar impornya lewat pencarian berkas dan mencetak signature sebelum memanggil;
-> tabel ini diperbarui dari cetakan itu, bukan sebaliknya.
+> **CATATAN ATRIBUSI (2026-08-11).** Versi sebelumnya paragraf ini mengklaim daftar di bawah dibaca
+> oleh `notebooks/05` lewat `vars(module)`. Saat itu **belum benar** — sel tersebut belum pernah
+> berhasil mengimpor apa pun. Daftarnya berasal dari clone audit 2026-07-24 ke `refs/`.
+>
+> **TERVERIFIKASI (2026-08-12).** Sekarang benar. Run notebook 05 mendaftarkan `vars(module)` dari
+> repo yang berjalan dan mencetak `inspect.signature` tiap fungsi sebelum memanggilnya. Jalur impor
+> ditemukan lewat pencarian berkas: `/content/ccc/utils/conformal_utils.py`, akar `/content/ccc`,
+> paket **`utils`** — jadi **jalur `utils.` di dokumen ini benar sejak awal**, dan setiap signature
+> di tabel bawah cocok kata-per-kata dengan cetakan run.
+>
+> **Koreksi 2026-08-11 yang keliru, dicatat.** Saat itu kusimpulkan `utils/` "tidak berada di jalur
+> yang tertulis di sini". **Salah.** Penyebab `ModuleNotFoundError` tunggal, bukan dua: sel baseline
+> berjalan sebelum repo di-clone, dan `sys.path.insert` atas direktori yang **belum ada** membuat
+> Python menyimpan entri itu sebagai tidak valid di `sys.path_importer_cache`. Clone berikutnya di
+> sel 13 tidak menolong karena cache-nya sudah teracuni — `importlib.invalidate_caches()` akan
+> memperbaikinya. Satu bug urutan, dua gejala, dan aku salah membaca gejala kedua sebagai bukti
+> bahwa dokumen ini keliru.
 
 **`utils.conformal_utils`** — di sinilah baseline-nya berada:
 
