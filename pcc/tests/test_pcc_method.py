@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 from pcc.method.pcc import (blend_delta, data_threshold, fit_gtheta, fit_pcc,
-                            gtheta_cv_mse, quantile_noise_at_n, recalibrate_marginal)
+                            gtheta_cv_mse, quantile_noise_at_n, recalibrate_marginal,
+                            select_n_star)
 
 
 def _world(K=60, n_per=120, d_phi=4, seed=0, signal=1.0):
@@ -183,6 +184,91 @@ def test_fit_pcc_end_to_end_keeps_marginal_and_records_provenance():
     assert m.provenance["everything_fit_on"].startswith("FIT slice")
     assert "NOT classwise validity" in m.provenance["claims"]
     assert 0.0 <= m.lam <= 1.0
+
+
+def test_n_star_by_objective_never_loses_to_the_mse_rule_on_train():
+    """The point of the fix: n_star chosen by the objective cannot do worse, ON TRAIN,
+    than n_star chosen by an MSE crossing — because the objective is what is scored."""
+    from pcc.eval.conformal import restrict_to_classes
+    from pcc.eval.setsize import avg_set_size_at_shift, equity_at_matched_size
+
+    Phi, names, S, y, K = _world(K=50, n_per=90, seed=11)
+    alpha = 0.1
+    qg = float(np.quantile(S[np.arange(len(y)), y], 1 - alpha))
+    d = _delta_obs(S, y, K, alpha, qg)
+    n_per_class = np.bincount(y, minlength=K)
+    tr = np.arange(0, K, 2)
+
+    g = fit_gtheta(Phi, d, tr, names)
+    d_hat = np.where(np.isfinite(g.predict(Phi)), g.predict(Phi), 0.0)
+    lam = 0.1
+
+    sel = select_n_star(S, y, tr, alpha, qg, d, d_hat, n_per_class, lam)
+    assert sel["selected_by"].startswith("objective")
+    assert "none" in sel["curve"]                    # None is a real candidate
+
+    mse = gtheta_cv_mse(Phi, d, tr, names, seed=0)
+    mse_ns = data_threshold(S, y, tr, alpha, qg, mse, n_rep=6, seed=0)["n_star"]
+
+    S_tr, y_tr, K_tr, ids = restrict_to_classes(S, y, tr)
+    base = np.full(K_tr, qg)
+    target = avg_set_size_at_shift(S_tr, base, 0.0)
+
+    def score(ns):
+        bl = blend_delta(d, d_hat, n_per_class, ns, lam)
+        return equity_at_matched_size(S_tr, y_tr, K_tr, base + bl["delta"][ids],
+                                      target)["worst"]
+
+    assert score(sel["n_star"]) >= score(mse_ns) - 1e-12
+
+
+def test_n_star_has_a_do_no_harm_floor_even_when_delta_obs_is_pure_noise():
+    """In a world with NO class-difficulty signal, delta_y is pure noise.
+
+    The guarantee that matters is a FLOOR, not that "none" wins: because `None` is
+    always a candidate, the selected n_star can never score below always-predicting. On a
+    single seed noise can favour either side — worst-class coverage moves in steps of
+    1/n_per (0.025 here), so a 0.025 gap is literally one sample — which is exactly why
+    the test asserts the floor rather than a winner.
+    """
+    Phi, names, S, y, K = _world(K=50, n_per=40, seed=13, signal=0.0)
+    alpha = 0.1
+    qg = float(np.quantile(S[np.arange(len(y)), y], 1 - alpha))
+    d = _delta_obs(S, y, K, alpha, qg)
+    n_per_class = np.bincount(y, minlength=K)
+    tr = np.arange(0, K, 2)
+    g = fit_gtheta(Phi, d, tr, names)
+    d_hat = np.where(np.isfinite(g.predict(Phi)), g.predict(Phi), 0.0)
+
+    for lam in (0.0, 0.1):
+        sel = select_n_star(S, y, tr, alpha, qg, d, d_hat, n_per_class, lam)
+        assert "none" in sel["curve"]
+        assert sel["value"] >= sel["curve"]["none"] - 1e-12
+        assert sel["value"] == max(sel["curve"].values())
+
+
+def test_fit_pcc_reports_both_rules_and_defaults_to_the_objective():
+    Phi, names, S, y, K = _world(K=50, n_per=90, seed=17)
+    alpha = 0.1
+    qg = float(np.quantile(S[np.arange(len(y)), y], 1 - alpha))
+    d = _delta_obs(S, y, K, alpha, qg)
+    n_per_class = np.bincount(y, minlength=K)
+    tr = np.arange(0, K, 2)
+
+    m = fit_pcc(Phi, names, d, n_per_class, qg, alpha, score_matrix_fit=S, labels_fit=y,
+                train_classes=tr, seed=0)
+    assert m.provenance["n_star_rule"] == "objective"
+    assert m.threshold_rule["selected"]["selected_by"].startswith("objective")
+    assert "mse_crossing_secondary" in m.threshold_rule       # kept, but not deciding
+    assert m.n_star == m.threshold_rule["selected"]["n_star"]
+
+    legacy = fit_pcc(Phi, names, d, n_per_class, qg, alpha, score_matrix_fit=S,
+                     labels_fit=y, train_classes=tr, seed=0, n_star_rule="mse")
+    assert legacy.n_star == m.threshold_rule["mse_crossing_secondary"]["n_star"]
+
+    with pytest.raises(ValueError):
+        fit_pcc(Phi, names, d, n_per_class, qg, alpha, score_matrix_fit=S, labels_fit=y,
+                train_classes=tr, seed=0, n_star_rule="nonsense")
 
 
 def test_lambda_and_offset_are_blind_to_heldout_class_SCORES():

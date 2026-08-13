@@ -257,8 +257,9 @@ def run(args) -> dict:
         "knn_ks_used": list(knn_ks), "knn_ks_dropped_K_too_small": list(knn_dropped),
         "delta_obs_defined": int(np.isfinite(delta_obs).sum()),
         "pcc": {"lambda": model.lam, "n_star": model.n_star, "offset": model.offset,
-                "gtheta_mse": model.threshold_rule["gtheta_mse"],
-                "noise_curve": model.threshold_rule["noise_curve"],
+                "n_star_selection": model.threshold_rule["selected"],
+                "n_star_mse_crossing_secondary":
+                    model.threshold_rule["mse_crossing_secondary"],
                 "blend": {k: v for k, v in model.blend.items() if k != "delta"
                           and k != "used_observed"},
                 "lambda_curve_train": model.lambda_selection["curve"],

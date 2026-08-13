@@ -65,36 +65,42 @@ into a number.
 samples it is a direct estimate; shrinking it toward the global threshold would discard
 information the data does contain.
 
-### KNOWN FLAW, found by the smoke run, not yet fixed (2026-08-13)
+### `n_star`: one flaw fixed, a second one found and NOT yet fixed (2026-08-13)
 
-`data_threshold` selects `n_star` by comparing **mean squared error** — the empirical
-class quantile's sampling noise against g_θ's out-of-fold MSE. But the objective is
-**worst-class equity at matched set size**. Those are not the same currency, and this
-project already learned that once: Amendment 8 exists because a worst-class objective is
-governed by the *largest* error, not the mean squared one, which is why λ had to be
-selected by the objective rather than by R².
+**Flaw 1 — wrong currency. FIXED.** `data_threshold` chose `n_star` by crossing mean
+squared errors, while the objective is worst-class equity at matched set size. Same
+mistake Amendment 8 records for λ: a worst-class objective is governed by the *largest*
+error, not the mean squared one. `select_n_star` now chooses by the objective on the
+TRAIN label space, with `None` ("never prefer the observed value") as a real candidate,
+so the selection has a do-no-harm floor by construction. The MSE crossing is still
+computed and reported as a secondary, because it is informative about where the empirical
+estimate becomes accurate — it just no longer decides.
 
-The smoke run exposed the consequence. In a NULL world (φ carries no information about
-difficulty), λ correctly collapses to **0.000** and held-out classes are left untouched
-(Table 2 delta exactly `+0.0000` — the machinery does not invent structure). Yet
-**Table 1 goes negative, −0.05 to −0.17 worst-class coverage**, because seen classes
-still use their observed δ_y: at ~29 calibration samples per class those quantiles are
-noisy, and noise in thresholds at matched size hurts the worst class. `n_star` (20–25)
-did not stop it, because by the MSE test the observed estimate genuinely *was* the more
-accurate one — it just was not the better one for this objective.
+Measured effect on the smoke world where φ genuinely predicts difficulty: Table 1
+worst-class delta rose from **+0.26…+0.36 to +0.43…+0.57**, and the rule selected
+`n_star = None` — prediction beats the observed quantile even for classes that have data,
+which is itself a result worth reporting.
 
-This is not a bug in the plumbing; it is the wrong selection criterion. The fix is to
-choose `n_star` the way λ is chosen — by the objective, on the TRAIN label space only —
-keeping the MSE crossing as a reported secondary. **Until that lands, Table 1 numbers
-from this driver must not be read as the method's seen-class performance.**
+**Flaw 2 — in-sample optimism. OPEN.** The null world is still negative on Table 1
+(−0.05…−0.17, unchanged), and the currency fix did not touch it. The reason is now
+identified: δ_obs is computed on the CAL slice, and `n_star` is selected on that *same*
+slice, so the selection sees the observed correction as better than it is. Table 1 is then
+read on EVAL, where the optimism disappears. The rule is scoring a fit on its own
+training data.
 
-Two things this does *not* invalidate:
+The fix is to select `n_star` **out-of-sample within CAL** — estimate δ_obs on one half,
+score equity on the other, swap, average — so the comparison between "observed" and
+"predicted" is fair. That is a change to the method, not a patch, so it gets its own
+measurement rather than being slipped in.
 
-- Table 2 (`n_y = 0`), where no observed δ_y exists and the rule never applies.
-- Anything already reported: on real ImageNet with ~76 calibration samples per class,
-  observed per-class quantiles clearly help (`reports/baseline_reproduction.md`:
-  classwise `max_gap 0.173` vs standard `0.420`). The null world is the adversarial end
-  of the noise range, not the expected one.
+**Consequence, in force until Flaw 2 is fixed: Table 1 numbers from this driver must not
+be read as the method's seen-class performance.** Table 2 (`n_y = 0`) is unaffected —
+there is no observed δ_y there, so `n_star` never fires, and the null world confirms it:
+Table 2 delta is exactly `+0.0000` with λ collapsing to 0. Nothing already reported is
+affected either: on real ImageNet with ~76 calibration samples per class, observed
+per-class quantiles clearly help (`reports/baseline_reproduction.md`: classwise
+`max_gap 0.173` vs standard `0.420`), so the null world is the adversarial end of the
+noise range, not the expected one.
 
 ### A leak that was in the first version, found before it produced a result
 

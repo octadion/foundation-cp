@@ -32,16 +32,18 @@ THREE THINGS THE GATE EVIDENCE FORCED INTO THE DESIGN
   crosses the sampling noise of the empirical class quantile against g_θ's own
   prediction error, both measured on TRAIN classes only.
 
-KNOWN FLAW IN `data_threshold` (2026-08-13) — see README.md
------------------------------------------------------------
-It selects `n_star` by mean squared error, but the objective is worst-class equity at
-matched set size. Wrong currency, and the same mistake Amendment 8 was written to fix
-for λ. Measured consequence in a null world: λ correctly goes to 0 and held-out classes
-are untouched, yet seen classes lose 0.05–0.17 worst-class coverage because their noisy
-observed δ_y is used anyway. `n_star` should be chosen by the objective on TRAIN classes,
-with the MSE crossing kept as a reported secondary. **Table 1 (seen-class) numbers must
-not be read as the method's performance until that is fixed.** Table 2 (`n_y = 0`) is
-unaffected: there is no observed δ_y there, so the rule never fires.
+OPEN FLAW IN `n_star` SELECTION (2026-08-13) — see README.md
+------------------------------------------------------------
+The wrong-currency flaw is fixed: `select_n_star` now chooses by the objective, not by an
+MSE crossing. A second flaw remains. δ_obs is estimated on the CAL slice and `n_star` is
+selected on that **same** slice, so the observed correction is scored on its own training
+data and looks better than it is; the optimism disappears on EVAL. Measured: in a null
+world Table 1 stays at −0.05…−0.17 worst-class coverage. The fix is out-of-sample
+selection within CAL (estimate δ_obs on one half, score on the other, swap, average),
+which is a change to the method and so gets its own measurement.
+
+**Until then, Table 1 (seen-class) numbers must not be read as the method's performance.**
+Table 2 (`n_y = 0`) is unaffected: no observed δ_y exists there, so `n_star` never fires.
 """
 from __future__ import annotations
 
@@ -53,7 +55,7 @@ import numpy as np
 from pcc.eval.conformal import restrict_to_classes
 from pcc.eval.predictability import ridge_fit, ridge_predict
 from pcc.eval.setsize import (avg_set_size_at_shift, corrected_thresholds,
-                              select_shrinkage)
+                              equity_at_matched_size, select_shrinkage)
 
 __all__ = [
     "GTheta",
@@ -62,6 +64,7 @@ __all__ = [
     "gtheta_cv_mse",
     "quantile_noise_at_n",
     "data_threshold",
+    "select_n_star",
     "blend_delta",
     "recalibrate_marginal",
     "fit_pcc",
@@ -211,6 +214,38 @@ def data_threshold(score_matrix, labels, train_classes, alpha, q_global, gtheta_
             "rule": "use observed delta_y when n_y >= n_star, else lambda * delta_hat"}
 
 
+def select_n_star(score_matrix, labels, train_classes, alpha, q_global,
+                  delta_obs, delta_hat, n_per_class, lam, *,
+                  candidates=(5, 10, 15, 20, 25, 30, 40, 50, 75, 100),
+                  stat: str = "worst") -> dict:
+    """§6.7 selected by the OBJECTIVE, on the TRAIN label space only.
+
+    This replaces an MSE crossing that was the wrong currency. The objective is
+    worst-class equity at matched set size, and a worst-class objective is governed by
+    the LARGEST error, not the mean squared one — the same lesson Amendment 8 records
+    for λ. Measured consequence of getting it wrong: in a null world λ correctly went to
+    0 and held-out classes were untouched, yet SEEN classes lost 0.05–0.17 worst-class
+    coverage, because by the MSE test their noisy observed δ_y really was the more
+    *accurate* estimate — it just was not the better one for this objective.
+
+    `n_star=None` is a genuine candidate and means "never prefer the observed value".
+    Selection uses only TRAIN classes, so it cannot tune itself on reported classes.
+    """
+    S_tr, y_tr, K_tr, ids = restrict_to_classes(np.asarray(score_matrix),
+                                                np.asarray(labels, int), train_classes)
+    base = np.full(K_tr, float(q_global))
+    target = avg_set_size_at_shift(S_tr, base, 0.0)
+    curve, best_ns, best_val = {}, None, -np.inf
+    for ns in [None] + [int(c) for c in candidates]:
+        bl = blend_delta(delta_obs, delta_hat, n_per_class, ns, lam)
+        e = equity_at_matched_size(S_tr, y_tr, K_tr, base + bl["delta"][ids], target)
+        curve["none" if ns is None else str(ns)] = float(e[stat])
+        if e[stat] > best_val:
+            best_ns, best_val = ns, float(e[stat])
+    return {"n_star": best_ns, "value": best_val, "curve": curve, "stat": stat,
+            "selected_by": "objective (" + stat + ") on TRAIN label space"}
+
+
 def blend_delta(delta_obs, delta_hat, n_per_class, n_star, lam) -> dict:
     """Combine the observed and predicted corrections per the §6.7 rule.
 
@@ -300,7 +335,7 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
             score_matrix_fit, labels_fit, train_classes,
             features: Optional[Sequence[str]] = None,
             ridge_alpha: float = 1.0, target_size: Optional[float] = None,
-            stat: str = "worst", n_folds: int = 5,
+            stat: str = "worst", n_folds: int = 5, n_star_rule: str = "objective",
             recalibrate: bool = True, seed: int = 0) -> PCCModel:
     """Fit the whole method on the FIT slice and the TRAIN label space only.
 
@@ -316,10 +351,13 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
                    features=features, ridge_alpha=ridge_alpha)
     d_hat = g.predict(np.asarray(Phi, float))
 
+    # The MSE crossing is still computed and reported — it is informative about where the
+    # empirical estimate becomes accurate — but it does NOT choose n_star. See
+    # `select_n_star` for why that currency was wrong.
     mse = gtheta_cv_mse(Phi, delta_obs, tr, feature_names, features=features,
                         ridge_alpha=ridge_alpha, n_folds=n_folds, seed=seed)
-    rule = data_threshold(score_matrix_fit, labels_fit, tr, alpha, q_global, mse,
-                          seed=seed)
+    mse_rule = data_threshold(score_matrix_fit, labels_fit, tr, alpha, q_global, mse,
+                              seed=seed)
 
     # λ is selected on the TRAIN LABEL SPACE ONLY. Selecting it over all classes would
     # let a free parameter tune itself on the very classes the result is read from —
@@ -334,7 +372,18 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
     lam_sel = select_shrinkage(S_tr, y_tr, K_tr, q_global, d_safe[ids_tr],
                                float(target_size), stat=stat)
 
-    blend = blend_delta(delta_obs, d_hat, n_per_class, rule["n_star"], lam_sel["lambda"])
+    if n_star_rule == "objective":
+        ns_sel = select_n_star(score_matrix_fit, labels_fit, tr, alpha, q_global,
+                               delta_obs, d_hat, n_per_class, lam_sel["lambda"],
+                               stat=stat)
+    elif n_star_rule == "mse":
+        ns_sel = {"n_star": mse_rule["n_star"], "selected_by": "mse crossing (legacy)",
+                  "curve": {}, "stat": stat, "value": float("nan")}
+    else:
+        raise ValueError("n_star_rule must be 'objective' or 'mse'")
+
+    blend = blend_delta(delta_obs, d_hat, n_per_class, ns_sel["n_star"],
+                        lam_sel["lambda"])
 
     # The marginal offset is also fit on TRAIN-class rows only, and that is not a
     # convenience: in deployment a class with n_y = 0 contributes no calibration rows
@@ -348,9 +397,12 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
 
     return PCCModel(
         gtheta=g, q_global=float(q_global), alpha=float(alpha),
-        lam=float(lam_sel["lambda"]), n_star=rule["n_star"], offset=float(offset),
-        threshold_rule=rule, lambda_selection=lam_sel, blend=blend,
+        lam=float(lam_sel["lambda"]), n_star=ns_sel["n_star"], offset=float(offset),
+        threshold_rule={"selected": ns_sel, "mse_crossing_secondary": mse_rule},
+        lambda_selection=lam_sel, blend=blend,
         provenance={
+            "n_star_rule": n_star_rule,
+            "n_star_selected_on": "TRAIN label space only",
             "fit_slice_rows": int(len(np.asarray(labels_fit))),
             "train_classes": int(len(tr)),
             "n_classes": int(n_classes),
