@@ -1,0 +1,1098 @@
+{
+  "name": "05_imagenet_gate_ccc_imagenet",
+  "hypothesis": "delta_y is predictable from CLASS-LEVEL OUTPUT-SPACE geometry beyond trivial predictors, at a class count adequate to detect a weak effect",
+  "pass_criteria": "PRIMARY per reports/prereg_imagenet_gate.md: stable feature set, n_cal=25, alpha=0.10, all classes unstratified. Gate B = class-level bootstrap CI low > 0 (n_boot=400). Gate C = class-level permutation null (n_perm=1000) vs log_prevalence_only and distance_only_prereg, Holm-Bonferroni corrected. Split-level CIs and the CI-excludes-0 criterion are NOT used: the unit of exchangeability is the class, and 0 is not the null of the paired difference.",
+  "config": {
+    "dataset": "imagenet",
+    "source": "ccc",
+    "dump": "/content/ccc_npy/imagenet/scores.npy",
+    "n_classes": 1000,
+    "alpha_primary": 0.1,
+    "n_cal_primary": 25,
+    "n_boot_class": 400,
+    "n_perm_class": 1000,
+    "alphas_secondary": [
+      0.01,
+      0.05
+    ],
+    "n_cal_secondary": 50,
+    "stable_threshold": 0.9,
+    "frac_desc": 0.4,
+    "frac_cal": 0.3,
+    "descriptor_family": "output_space",
+    "feature_sets": {
+      "stable": [
+        "conf_mean",
+        "leak_max",
+        "leak_top5",
+        "margin_mean",
+        "prof_knn_10",
+        "prof_knn_5",
+        "prof_knn_50"
+      ],
+      "full": [
+        "conf_mean",
+        "conf_sd",
+        "entropy_mean",
+        "frac_top1",
+        "leak_entropy",
+        "leak_max",
+        "leak_top5",
+        "log_prevalence",
+        "margin_mean",
+        "mean_log1p_rank",
+        "n_eff",
+        "prof_knn_10",
+        "prof_knn_5",
+        "prof_knn_50"
+      ]
+    },
+    "scores_source": "CCC released dump (no forward pass)",
+    "dump_survey": [
+      {
+        "n": 32359,
+        "K": 8142,
+        "med": 2.0,
+        "empty": 606,
+        "n_feasible": 0,
+        "focal": false,
+        "keep": true,
+        "how": "nama",
+        "src": "ltc",
+        "ds": "inaturalist"
+      },
+      {
+        "n": 46227,
+        "K": 8142,
+        "med": 2.0,
+        "empty": 0,
+        "n_feasible": 63,
+        "focal": false,
+        "keep": true,
+        "how": "nama",
+        "src": "ltc",
+        "ds": "inaturalist"
+      },
+      {
+        "n": 21783,
+        "K": 1081,
+        "med": 2.0,
+        "empty": 105,
+        "n_feasible": 66,
+        "focal": false,
+        "keep": true,
+        "how": "nama",
+        "src": "ltc",
+        "ds": "plantnet"
+      },
+      {
+        "n": 31112,
+        "K": 1081,
+        "med": 3.0,
+        "empty": 0,
+        "n_feasible": 90,
+        "focal": false,
+        "keep": true,
+        "how": "nama",
+        "src": "ltc",
+        "ds": "plantnet"
+      },
+      {
+        "n": 1153051,
+        "K": 1000,
+        "med": 1168.0,
+        "empty": 0,
+        "n_feasible": 1000,
+        "focal": false,
+        "keep": true,
+        "how": "dimensi",
+        "src": "ccc",
+        "ds": "imagenet"
+      }
+    ],
+    "amendments": [
+      "#amendment-10"
+    ]
+  },
+  "seed": 42,
+  "environment": {
+    "python": "3.12.13",
+    "platform": "Linux-6.6.122+-x86_64-with-glibc2.35",
+    "packages": {
+      "torch": "2.11.0+cpu",
+      "torchvision": "0.26.0+cpu",
+      "timm": "1.0.28",
+      "numpy": "2.0.2",
+      "scipy": "1.16.3",
+      "sklearn": "1.6.1",
+      "pandas": "2.2.2"
+    },
+    "git_commit": "e63f73e1e9248d86c7e5a8d90d185a4cc952f1ad"
+  },
+  "runtime_seconds": null,
+  "results": {
+    "premise_ok": true,
+    "dump_accuracy": 0.7769036010127474,
+    "samples_per_class": {
+      "min": 144,
+      "median": 253.0,
+      "max": 260
+    },
+    "split_sizes": {
+      "desc": 99985,
+      "cal": 74960,
+      "eval": 75068
+    },
+    "stability": {
+      "conf_mean": 0.9156100024596053,
+      "conf_sd": 0.7550786523860894,
+      "entropy_mean": 0.8777122255281131,
+      "frac_top1": 0.8687426812813781,
+      "leak_entropy": 0.7790001986308154,
+      "leak_max": 0.9017268409269232,
+      "leak_top5": 0.9203954389172425,
+      "log_prevalence": 1.0,
+      "margin_mean": 0.9108922542568514,
+      "mean_log1p_rank": 0.7497876004222034,
+      "n_eff": 0.9842172935234369,
+      "prof_knn_1": 0.9408401902585922,
+      "prof_knn_10": 0.9509790334374274,
+      "prof_knn_5": 0.9513294157278055,
+      "prof_knn_50": 0.9503144668272844
+    },
+    "stable_set": [
+      "conf_mean",
+      "leak_max",
+      "leak_top5",
+      "margin_mean",
+      "prof_knn_10",
+      "prof_knn_5",
+      "prof_knn_50"
+    ],
+    "gate_A": {
+      "reliability": 0.8294026594035091,
+      "ci": [
+        0.827357938342275,
+        0.8314473804647432
+      ],
+      "pass_": true
+    },
+    "ceilings": {
+      "r_delta": 0.8294026594035091,
+      "r_phi": 0.9287496360790198,
+      "joint": 0.7703074180839803
+    },
+    "gate_B_class_bootstrap": {
+      "mean": 0.49746625551514745,
+      "median": 0.4967638135430711,
+      "ci_low": 0.46066396773543794,
+      "ci_high": 0.5336803042059887,
+      "n_boot": 400,
+      "n_classes": 1000,
+      "unit": "class",
+      "undefined_reason": null,
+      "normalized_mean": 0.5997885946892381,
+      "normalized_ci_low": 0.5554165549297115,
+      "normalized_ci_high": 0.6434514022294088,
+      "gate_B_pass_class_unit": true
+    },
+    "gate_B_split_secondary": {
+      "mean": 0.4949671644586484,
+      "median": 0.4999916940061358,
+      "ci_low": 0.4505104635431381,
+      "ci_high": 0.5268647659846664,
+      "n": 100
+    },
+    "gate_C_permutation": {
+      "distance_only": {
+        "p_value": 0.000999000999000999,
+        "observed": 0.34258366842401244,
+        "null_mean": -0.010370897409479983,
+        "null_sd": 0.0042447822445314315,
+        "n_perm": 1000,
+        "n_classes_permuted": 1000,
+        "undefined_reason": null
+      },
+      "log_prevalence_only": {
+        "p_value": 0.000999000999000999,
+        "observed": 0.4902433226714048,
+        "null_mean": -0.010362168753568072,
+        "null_sd": 0.004926199988931743,
+        "n_perm": 1000,
+        "n_classes_permuted": 1000,
+        "undefined_reason": null
+      }
+    },
+    "gate_C_holm": [
+      {
+        "p_value": 0.000999000999000999,
+        "threshold": 0.025,
+        "reject": true
+      },
+      {
+        "p_value": 0.000999000999000999,
+        "threshold": 0.05,
+        "reject": true
+      }
+    ],
+    "gate_C_ablations_tested": [
+      "distance_only",
+      "log_prevalence_only"
+    ],
+    "prevalence_ablation_degenerate": false,
+    "distance_baseline": "prof_knn_1",
+    "gate_B_pass": true,
+    "gate_C_pass": true,
+    "multi_alpha": {
+      "0.1": {
+        "n_classes": 1000,
+        "feasible_classes": 1000,
+        "n_needed_for_alpha": 9,
+        "meaningful": true,
+        "r2": 0.5000388230242837,
+        "ci": [
+          0.4571587609659242,
+          0.5327541402632049
+        ],
+        "gate_B": true
+      },
+      "0.01": {
+        "n_classes": 1000,
+        "feasible_classes": 0,
+        "n_needed_for_alpha": 99,
+        "meaningful": false,
+        "r2": 0.22003356014668302,
+        "ci": [
+          0.1867382709808287,
+          0.25213100462362054
+        ],
+        "gate_B": true
+      },
+      "0.05": {
+        "n_classes": 1000,
+        "feasible_classes": 1000,
+        "n_needed_for_alpha": 19,
+        "meaningful": true,
+        "r2": 0.35061251734350773,
+        "ci": [
+          0.31147366628835355,
+          0.3850400247423392
+        ],
+        "gate_B": true
+      }
+    },
+    "secondary": {
+      "stable|n_cal25": {
+        "mean": 0.5000388230242837,
+        "median": 0.502692925095362,
+        "ci_low": 0.4571587609659242,
+        "ci_high": 0.5327541402632049,
+        "n_boot": 200,
+        "n_classes": 1000,
+        "unit": "class",
+        "undefined_reason": null,
+        "normalized_mean": 0.6028903058785733,
+        "normalized_ci_low": 0.5511903727131816,
+        "normalized_ci_high": 0.6423347384084248,
+        "gate_B_pass_class_unit": true
+      },
+      "full|n_cal25": {
+        "mean": 0.5974246558837635,
+        "median": 0.5982264363757417,
+        "ci_low": 0.5530509277922867,
+        "ci_high": 0.6381060746610752,
+        "n_boot": 200,
+        "n_classes": 1000,
+        "unit": "class",
+        "undefined_reason": null,
+        "normalized_mean": 0.7203071380473027,
+        "normalized_ci_low": 0.6668063111710186,
+        "normalized_ci_high": 0.7693561956022532,
+        "gate_B_pass_class_unit": true
+      },
+      "stable|n_cal50": {
+        "mean": 0.4842671610394841,
+        "median": 0.48588196619064694,
+        "ci_low": 0.44975019790054466,
+        "ci_high": 0.5200572672592629,
+        "n_boot": 200,
+        "n_classes": 995,
+        "unit": "class",
+        "undefined_reason": null,
+        "normalized_mean": 0.5838746181351286,
+        "normalized_ci_low": 0.5422579645741631,
+        "normalized_ci_high": 0.6270262837513427,
+        "gate_B_pass_class_unit": true
+      }
+    },
+    "sec_6_4": {
+      "observed": {
+        "mean": 0.11731014554877181,
+        "se": 0.011461263352212306,
+        "ci_low": 0.09484648216110689,
+        "ci_high": 0.13977380893643673,
+        "n": 20,
+        "n_finite": 20
+      },
+      "shuffled_null": {
+        "mean": -0.04902103679846766,
+        "se": 0.013094300512850958,
+        "ci_low": -0.07468539420639989,
+        "ci_high": -0.023356679390535425,
+        "n": 20,
+        "n_finite": 20
+      },
+      "oracle_ceiling": {
+        "mean": 0.1542158844723519,
+        "se": 0.007697708889792874,
+        "ci_low": 0.13912865228488408,
+        "ci_high": 0.16930311665981973,
+        "n": 20,
+        "n_finite": 20
+      },
+      "raw_delta_lambda1": {
+        "mean": -0.23433331814732355,
+        "se": 0.0420715717564247,
+        "ci_low": -0.3167920835629085,
+        "ci_high": -0.1518745527317386,
+        "n": 20,
+        "n_finite": 20
+      },
+      "lambda_mean": 0.08750000000000002,
+      "beats_null": true,
+      "pass": true
+    },
+    "clustered_cp": {
+      "imported": true,
+      "api": {
+        "utils.clustering_utils": [
+          "embed_all_classes(scores_all, labels, q=[0.5, 0.6, 0.7, 0.8, 0.9], return_cts=False)",
+          "generate_realistic_clustered_data(samples_list, num_classes, num_samples_per_class, cluster_probs=None)",
+          "generate_synthetic_clustered_data(num_clusters, num_classes, num_samples_per_class, cluster_probs=None, dist_between_means=1000, sd=1)",
+          "quantile_embedding(samples, q=[0.5, 0.6, 0.7, 0.8, 0.9])",
+          "sample_from_empirical_distr(data, num_samples)"
+        ],
+        "utils.conformal_utils": [
+          "classwise_conformal(totalcal_scores_all, totalcal_labels, val_scores_all, val_labels, alpha, num_classes, default_qhat=inf, regularize=False, exact_coverage=False)",
+          "clustered_conformal(totalcal_scores_all, totalcal_labels, alpha, val_scores_all=None, val_labels=None, frac_clustering='auto', num_clusters='auto', split='random', exact_coverage=False, seed=0)",
+          "compute_all_metrics(val_labels, preds, alpha, cluster_assignments=None)",
+          "compute_avg_set_size(list_of_arrays)",
+          "compute_class_specific_coverage(true_labels, set_preds)",
+          "compute_class_specific_qhats(cal_scores_all, cal_true_labels, num_classes, alpha, default_qhat=inf, null_qhat=None, regularize=False, exact_coverage=False)",
+          "compute_cluster_specific_qhats(cluster_assignments, cal_scores_all, cal_true_labels, alpha, null_qhat='standard', exact_coverage=False)",
+          "compute_coverage(true_labels, set_preds)",
+          "compute_exact_coverage_class_specific_params(scores_all, labels, num_classes, alpha, default_qhat=inf, null_params=None)",
+          "compute_qhat(scores_all, true_labels, alpha, exact_coverage=False, plot_scores=False)",
+          "construct_exact_coverage_classwise_sets(q_as, q_bs, gammas, scores_all)",
+          "construct_exact_coverage_standard_sets(q_a, q_b, gamma, scores_all)",
+          "create_classwise_prediction_sets(scores_all, q_hats, exact_coverage=False)",
+          "create_prediction_sets(scores_all, q_hat, exact_coverage=False)",
+          "get_APS_scores(softmax_scores, labels, randomize=True, seed=0)",
+          "get_APS_scores_all(softmax_scores, randomize=True, seed=0)",
+          "get_RAPS_scores(softmax_scores, labels, lmbda=0.01, kreg=5, randomize=True, seed=0)",
+          "get_RAPS_scores_all(softmax_scores, lmbda, kreg, randomize=True, seed=0)",
+          "get_clustering_parameters(num_classes, n_totalcal)",
+          "get_conformal_quantile(scores, alpha, default_qhat=inf, exact_coverage=False)",
+          "get_exact_coverage_conformal_params(scores, alpha, default_qhat=inf)",
+          "get_quantile_threshold(alpha)",
+          "get_true_class_conformal_score(scores_all, labels)",
+          "random_split(X, y, avg_num_per_class, seed=0)",
+          "reconformalize(qhats, scores, labels, alpha, adjustment_min=-1, adjustment_max=1)",
+          "split_X_and_y(X, y, n_k, num_classes, seed=0, split='balanced')",
+          "standard_conformal(cal_scores_all, cal_labels, val_scores_all, val_labels, alpha, exact_coverage=False)"
+        ]
+      },
+      "note": "API didaftar, belum dipanggil \u2014 wiring ditulis dari daftar ini"
+    },
+    "head_weight_phi": {
+      "W_shape": [
+        1000,
+        2048
+      ],
+      "features": [
+        "w_bias",
+        "w_cos_knn_1",
+        "w_cos_knn_10",
+        "w_cos_knn_5",
+        "w_cos_knn_50",
+        "w_cos_to_mean",
+        "w_margin_nearest",
+        "w_neigh_spread",
+        "w_norm",
+        "log_prevalence"
+      ],
+      "distance_baseline": "w_cos_knn_1",
+      "gate_B": {
+        "mean": 0.38800354397395376,
+        "median": 0.386333524626248,
+        "ci_low": 0.3448709647105962,
+        "ci_high": 0.43862769949308206,
+        "n_boot": 400,
+        "n_classes": 1000,
+        "unit": "class",
+        "undefined_reason": null,
+        "normalized_mean": 0.46781082695466475,
+        "normalized_ci_low": 0.4158064370792119,
+        "normalized_ci_high": 0.5288477128931982,
+        "gate_B_pass_class_unit": true
+      },
+      "gate_B_pass": true,
+      "gate_C_permutation": {
+        "distance_only": {
+          "p_value": 0.000999000999000999,
+          "observed": 0.3753110756725807,
+          "null_mean": -0.012976656610937025,
+          "null_sd": 0.004547013180216167,
+          "n_perm": 1000,
+          "n_classes_permuted": 1000,
+          "undefined_reason": null
+        },
+        "log_prevalence_only": {
+          "p_value": 0.000999000999000999,
+          "observed": 0.37099228448152227,
+          "null_mean": -0.012872154516414323,
+          "null_sd": 0.005222916368737329,
+          "n_perm": 1000,
+          "n_classes_permuted": 1000,
+          "undefined_reason": null
+        }
+      },
+      "gate_C_holm": [
+        {
+          "p_value": 0.000999000999000999,
+          "threshold": 0.025,
+          "reject": true
+        },
+        {
+          "p_value": 0.000999000999000999,
+          "threshold": 0.05,
+          "reject": true
+        }
+      ],
+      "gate_C_pass": true,
+      "source": "torchvision ResNet50 IMAGENET1K_V2 fc.weight",
+      "independent_of_scores": true
+    },
+    "sec_6_4_head": {
+      "observed": {
+        "mean": 0.06430538789191778,
+        "se": 0.0054843809461040385,
+        "ci_low": 0.05355619876005616,
+        "ci_high": 0.0750545770237794,
+        "n": 20,
+        "n_finite": 20
+      },
+      "shuffled_null": {
+        "mean": -0.0629951631775896,
+        "se": 0.014798098515300676,
+        "ci_low": -0.09199890330725458,
+        "ci_high": -0.033991423047924636,
+        "n": 20,
+        "n_finite": 20
+      },
+      "oracle_ceiling": {
+        "mean": 0.1542158844723519,
+        "se": 0.007697708889792874,
+        "ci_low": 0.13912865228488408,
+        "ci_high": 0.16930311665981973,
+        "n": 20,
+        "n_finite": 20
+      },
+      "raw_delta_lambda1": {
+        "mean": -0.507917924626667,
+        "se": 0.010135460893257868,
+        "ci_low": -0.5277830629441665,
+        "ci_high": -0.4880527863091674,
+        "n": 20,
+        "n_finite": 20
+      },
+      "lambda_mean": 0.09500000000000001,
+      "beats_null": true,
+      "pass": true
+    },
+    "baselines": {
+      "THR|standard_conformal": {
+        "return_len": 4,
+        "qhat": 0.9637613296508789,
+        "dict_2": {
+          "mean_class_cov_gap": 0.05803531157122539,
+          "undercov_gap": 0.07007124130370317,
+          "overcov_gap": 0.048930148563112945,
+          "max_gap": 0.42000000000000004,
+          "very_undercovered": 0.109,
+          "marginal_cov": 0.8979858261842596,
+          "raw_class_coverages": {
+            "shape": [
+              1000
+            ],
+            "mean": 0.8973536166022185
+          },
+          "cluster_assignments": null
+        },
+        "dict_3": {
+          "mean": 1.9106276975542176,
+          "[.25, .5, .75, .9] quantiles": {
+            "shape": [
+              4
+            ],
+            "mean": 2.0
+          }
+        },
+        "metrics": [
+          {
+            "mean_class_cov_gap": 0.05803531157122539,
+            "undercov_gap": 0.07007124130370317,
+            "overcov_gap": 0.048930148563112945,
+            "max_gap": 0.42000000000000004,
+            "very_undercovered": 0.109,
+            "marginal_cov": 0.8979858261842596,
+            "raw_class_coverages": {
+              "shape": [
+                1000
+              ],
+              "mean": 0.8973536166022185
+            },
+            "cluster_assignments": null
+          },
+          {
+            "mean": 1.9106276975542176,
+            "[.25, .5, .75, .9] quantiles": {
+              "shape": [
+                4
+              ],
+              "mean": 2.0
+            }
+          }
+        ],
+        "max_gap": 0.42000000000000004,
+        "very_undercovered": 0.109,
+        "class_cov_gap": 0.05803531157122539,
+        "set_size": 1.9106276975542176
+      },
+      "THR|classwise_conformal": {
+        "return_len": 4,
+        "qhat": {
+          "shape": [
+            1000
+          ],
+          "mean": 0.8517246506214142
+        },
+        "dict_2": {
+          "mean_class_cov_gap": 0.036659548080913366,
+          "undercov_gap": 0.03568548306109705,
+          "overcov_gap": 0.03728493301153435,
+          "max_gap": 0.17272727272727273,
+          "very_undercovered": 0.012,
+          "marginal_cov": 0.9087494005435072,
+          "raw_class_coverages": {
+            "shape": [
+              1000
+            ],
+            "mean": 0.9087535003271355
+          },
+          "cluster_assignments": null
+        },
+        "dict_3": {
+          "mean": 4.101134970959663,
+          "[.25, .5, .75, .9] quantiles": {
+            "shape": [
+              4
+            ],
+            "mean": 4.75
+          }
+        },
+        "metrics": [
+          {
+            "mean_class_cov_gap": 0.036659548080913366,
+            "undercov_gap": 0.03568548306109705,
+            "overcov_gap": 0.03728493301153435,
+            "max_gap": 0.17272727272727273,
+            "very_undercovered": 0.012,
+            "marginal_cov": 0.9087494005435072,
+            "raw_class_coverages": {
+              "shape": [
+                1000
+              ],
+              "mean": 0.9087535003271355
+            },
+            "cluster_assignments": null
+          },
+          {
+            "mean": 4.101134970959663,
+            "[.25, .5, .75, .9] quantiles": {
+              "shape": [
+                4
+              ],
+              "mean": 4.75
+            }
+          }
+        ],
+        "max_gap": 0.17272727272727273,
+        "very_undercovered": 0.012,
+        "class_cov_gap": 0.036659548080913366,
+        "set_size": 4.101134970959663
+      },
+      "THR|clustered_conformal": {
+        "return_len": 4,
+        "qhat": {
+          "shape": [
+            1000
+          ],
+          "mean": 0.8624268531799316
+        },
+        "dict_2": {
+          "mean_class_cov_gap": 0.037995239149190466,
+          "undercov_gap": 0.0413882106823395,
+          "overcov_gap": 0.03525263828966495,
+          "max_gap": 0.2333333333333334,
+          "very_undercovered": 0.03,
+          "marginal_cov": 0.901222891245271,
+          "raw_class_coverages": {
+            "shape": [
+              1000
+            ],
+            "mean": 0.9009941787991791
+          },
+          "cluster_assignments": {
+            "shape": [
+              1000
+            ],
+            "mean": 9.403
+          },
+          "num_unclustered_classes": 0
+        },
+        "dict_3": {
+          "mean": 2.56756540736399,
+          "[.25, .5, .75, .9] quantiles": {
+            "shape": [
+              4
+            ],
+            "mean": 3.0
+          }
+        },
+        "metrics": [
+          {
+            "mean_class_cov_gap": 0.037995239149190466,
+            "undercov_gap": 0.0413882106823395,
+            "overcov_gap": 0.03525263828966495,
+            "max_gap": 0.2333333333333334,
+            "very_undercovered": 0.03,
+            "marginal_cov": 0.901222891245271,
+            "raw_class_coverages": {
+              "shape": [
+                1000
+              ],
+              "mean": 0.9009941787991791
+            },
+            "cluster_assignments": null
+          },
+          {
+            "mean": 2.56756540736399,
+            "[.25, .5, .75, .9] quantiles": {
+              "shape": [
+                4
+              ],
+              "mean": 3.0
+            }
+          }
+        ],
+        "max_gap": 0.2333333333333334,
+        "very_undercovered": 0.03,
+        "class_cov_gap": 0.037995239149190466,
+        "set_size": 2.56756540736399
+      },
+      "APS|standard_conformal": {
+        "return_len": 4,
+        "qhat": 0.9072742645806436,
+        "dict_2": {
+          "mean_class_cov_gap": 0.03618762169366694,
+          "undercov_gap": 0.03922129600785516,
+          "overcov_gap": 0.03368806939274198,
+          "max_gap": 0.2246753246753247,
+          "very_undercovered": 0.032,
+          "marginal_cov": 0.8995710555762775,
+          "raw_class_coverages": {
+            "shape": [
+              1000
+            ],
+            "mean": 0.899319603446283
+          },
+          "cluster_assignments": null
+        },
+        "dict_3": {
+          "mean": 25.57066925987105,
+          "[.25, .5, .75, .9] quantiles": {
+            "shape": [
+              4
+            ],
+            "mean": 22.0
+          }
+        },
+        "metrics": [
+          {
+            "mean_class_cov_gap": 0.03618762169366694,
+            "undercov_gap": 0.03922129600785516,
+            "overcov_gap": 0.03368806939274198,
+            "max_gap": 0.2246753246753247,
+            "very_undercovered": 0.032,
+            "marginal_cov": 0.8995710555762775,
+            "raw_class_coverages": {
+              "shape": [
+                1000
+              ],
+              "mean": 0.899319603446283
+            },
+            "cluster_assignments": null
+          },
+          {
+            "mean": 25.57066925987105,
+            "[.25, .5, .75, .9] quantiles": {
+              "shape": [
+                4
+              ],
+              "mean": 22.0
+            }
+          }
+        ],
+        "max_gap": 0.2246753246753247,
+        "very_undercovered": 0.032,
+        "class_cov_gap": 0.03618762169366694,
+        "set_size": 25.57066925987105
+      },
+      "APS|classwise_conformal": {
+        "return_len": 4,
+        "qhat": {
+          "shape": [
+            1000
+          ],
+          "mean": 0.9109653502535128
+        },
+        "dict_2": {
+          "mean_class_cov_gap": 0.03740818029453857,
+          "undercov_gap": 0.0361400792238227,
+          "overcov_gap": 0.03856316908250395,
+          "max_gap": 0.15581395348837213,
+          "very_undercovered": 0.02,
+          "marginal_cov": 0.907617093834923,
+          "raw_class_coverages": {
+            "shape": [
+              1000
+            ],
+            "mean": 0.907556474855661
+          },
+          "cluster_assignments": null
+        },
+        "dict_3": {
+          "mean": 34.96004955507007,
+          "[.25, .5, .75, .9] quantiles": {
+            "shape": [
+              4
+            ],
+            "mean": 36.75
+          }
+        },
+        "metrics": [
+          {
+            "mean_class_cov_gap": 0.03740818029453857,
+            "undercov_gap": 0.0361400792238227,
+            "overcov_gap": 0.03856316908250395,
+            "max_gap": 0.15581395348837213,
+            "very_undercovered": 0.02,
+            "marginal_cov": 0.907617093834923,
+            "raw_class_coverages": {
+              "shape": [
+                1000
+              ],
+              "mean": 0.907556474855661
+            },
+            "cluster_assignments": null
+          },
+          {
+            "mean": 34.96004955507007,
+            "[.25, .5, .75, .9] quantiles": {
+              "shape": [
+                4
+              ],
+              "mean": 36.75
+            }
+          }
+        ],
+        "max_gap": 0.15581395348837213,
+        "very_undercovered": 0.02,
+        "class_cov_gap": 0.03740818029453857,
+        "set_size": 34.96004955507007
+      },
+      "APS|clustered_conformal": {
+        "return_len": 4,
+        "qhat": {
+          "shape": [
+            1000
+          ],
+          "mean": 0.9040590175544659
+        },
+        "dict_2": {
+          "mean_class_cov_gap": 0.03479342325081383,
+          "undercov_gap": 0.03453101327814005,
+          "overcov_gap": 0.03519528582168728,
+          "max_gap": 0.14675324675324675,
+          "very_undercovered": 0.017,
+          "marginal_cov": 0.9004502584323547,
+          "raw_class_coverages": {
+            "shape": [
+              1000
+            ],
+            "mean": 0.9003314719992301
+          },
+          "cluster_assignments": {
+            "shape": [
+              1000
+            ],
+            "mean": 9.642
+          },
+          "num_unclustered_classes": 0
+        },
+        "dict_3": {
+          "mean": 29.10138807481217,
+          "[.25, .5, .75, .9] quantiles": {
+            "shape": [
+              4
+            ],
+            "mean": 27.75
+          }
+        },
+        "metrics": [
+          {
+            "mean_class_cov_gap": 0.03479342325081383,
+            "undercov_gap": 0.03453101327814005,
+            "overcov_gap": 0.03519528582168728,
+            "max_gap": 0.14675324675324675,
+            "very_undercovered": 0.017,
+            "marginal_cov": 0.9004502584323547,
+            "raw_class_coverages": {
+              "shape": [
+                1000
+              ],
+              "mean": 0.9003314719992301
+            },
+            "cluster_assignments": null
+          },
+          {
+            "mean": 29.10138807481217,
+            "[.25, .5, .75, .9] quantiles": {
+              "shape": [
+                4
+              ],
+              "mean": 27.75
+            }
+          }
+        ],
+        "max_gap": 0.14675324675324675,
+        "very_undercovered": 0.017,
+        "class_cov_gap": 0.03479342325081383,
+        "set_size": 29.10138807481217
+      },
+      "RAPS|standard_conformal": {
+        "return_len": 4,
+        "qhat": 0.9248256590162812,
+        "dict_2": {
+          "mean_class_cov_gap": 0.04034298745128062,
+          "undercov_gap": 0.04462636682684289,
+          "overcov_gap": 0.03666787225016625,
+          "max_gap": 0.25526315789473686,
+          "very_undercovered": 0.042,
+          "marginal_cov": 0.8986385676986199,
+          "raw_class_coverages": {
+            "shape": [
+              1000
+            ],
+            "mean": 0.8983049499003946
+          },
+          "cluster_assignments": null
+        },
+        "dict_3": {
+          "mean": 5.107715671124847,
+          "[.25, .5, .75, .9] quantiles": {
+            "shape": [
+              4
+            ],
+            "mean": 5.75
+          }
+        },
+        "metrics": [
+          {
+            "mean_class_cov_gap": 0.04034298745128062,
+            "undercov_gap": 0.04462636682684289,
+            "overcov_gap": 0.03666787225016625,
+            "max_gap": 0.25526315789473686,
+            "very_undercovered": 0.042,
+            "marginal_cov": 0.8986385676986199,
+            "raw_class_coverages": {
+              "shape": [
+                1000
+              ],
+              "mean": 0.8983049499003946
+            },
+            "cluster_assignments": null
+          },
+          {
+            "mean": 5.107715671124847,
+            "[.25, .5, .75, .9] quantiles": {
+              "shape": [
+                4
+              ],
+              "mean": 5.75
+            }
+          }
+        ],
+        "max_gap": 0.25526315789473686,
+        "very_undercovered": 0.042,
+        "class_cov_gap": 0.04034298745128062,
+        "set_size": 5.107715671124847
+      },
+      "RAPS|classwise_conformal": {
+        "return_len": 4,
+        "qhat": {
+          "shape": [
+            1000
+          ],
+          "mean": 0.9357349739224374
+        },
+        "dict_2": {
+          "mean_class_cov_gap": 0.03803900443914081,
+          "undercov_gap": 0.03722721893210852,
+          "overcov_gap": 0.03862444011460815,
+          "max_gap": 0.19333333333333336,
+          "very_undercovered": 0.018,
+          "marginal_cov": 0.9069110672989823,
+          "raw_class_coverages": {
+            "shape": [
+              1000
+            ],
+            "mean": 0.9068425949740339
+          },
+          "cluster_assignments": null
+        },
+        "dict_3": {
+          "mean": 6.845593328715298,
+          "[.25, .5, .75, .9] quantiles": {
+            "shape": [
+              4
+            ],
+            "mean": 8.0
+          }
+        },
+        "metrics": [
+          {
+            "mean_class_cov_gap": 0.03803900443914081,
+            "undercov_gap": 0.03722721893210852,
+            "overcov_gap": 0.03862444011460815,
+            "max_gap": 0.19333333333333336,
+            "very_undercovered": 0.018,
+            "marginal_cov": 0.9069110672989823,
+            "raw_class_coverages": {
+              "shape": [
+                1000
+              ],
+              "mean": 0.9068425949740339
+            },
+            "cluster_assignments": null
+          },
+          {
+            "mean": 6.845593328715298,
+            "[.25, .5, .75, .9] quantiles": {
+              "shape": [
+                4
+              ],
+              "mean": 8.0
+            }
+          }
+        ],
+        "max_gap": 0.19333333333333336,
+        "very_undercovered": 0.018,
+        "class_cov_gap": 0.03803900443914081,
+        "set_size": 6.845593328715298
+      },
+      "RAPS|clustered_conformal": {
+        "return_len": 4,
+        "qhat": {
+          "shape": [
+            1000
+          ],
+          "mean": 0.924061199135128
+        },
+        "dict_2": {
+          "mean_class_cov_gap": 0.036255118771016684,
+          "undercov_gap": 0.03737963062344067,
+          "overcov_gap": 0.03526458739036567,
+          "max_gap": 0.16666666666666674,
+          "very_undercovered": 0.019,
+          "marginal_cov": 0.9001838333244525,
+          "raw_class_coverages": {
+            "shape": [
+              1000
+            ],
+            "mean": 0.8999968770662793
+          },
+          "cluster_assignments": {
+            "shape": [
+              1000
+            ],
+            "mean": 9.512
+          },
+          "num_unclustered_classes": 0
+        },
+        "dict_3": {
+          "mean": 5.390645814461555,
+          "[.25, .5, .75, .9] quantiles": {
+            "shape": [
+              4
+            ],
+            "mean": 6.25
+          }
+        },
+        "metrics": [
+          {
+            "mean_class_cov_gap": 0.036255118771016684,
+            "undercov_gap": 0.03737963062344067,
+            "overcov_gap": 0.03526458739036567,
+            "max_gap": 0.16666666666666674,
+            "very_undercovered": 0.019,
+            "marginal_cov": 0.9001838333244525,
+            "raw_class_coverages": {
+              "shape": [
+                1000
+              ],
+              "mean": 0.8999968770662793
+            },
+            "cluster_assignments": null
+          },
+          {
+            "mean": 5.390645814461555,
+            "[.25, .5, .75, .9] quantiles": {
+              "shape": [
+                4
+              ],
+              "mean": 6.25
+            }
+          }
+        ],
+        "max_gap": 0.16666666666666674,
+        "very_undercovered": 0.019,
+        "class_cov_gap": 0.036255118771016684,
+        "set_size": 5.390645814461555
+      }
+    },
+    "caveats": [
+      "phi(y) = geometri ruang OUTPUT dari matriks skor, BUKAN phi embedding Pl@ntNet.",
+      "Penyimpangan dari urutan pre-registered: dataset ini dijalankan meski Phase 1 Pl@ntNet",
+      "  tidak lulus. Alasan: kegagalannya terdiagnosis sebagai daya uji dan tidak bisa diangkat",
+      "  di Pl@ntNet (38 kelas/stratum). Dicatat di prereg_imagenet_gate.md.",
+      "Ablasi prevalensi DAPAT diuji di dump ini, jadi gate C diuji lawan KEDUA baseline: jarak dan prevalensi.",
+      "Predictability didominasi RINGKASAN SKOR langsung, bukan geometri kelas: baseline jarak sendirian menjelaskan ~0.155 dari R2 0.497. phi ruang-output DAN delta_y keduanya diturunkan dari matriks skor model yang SAMA (sampel terpisah), jadi gate B di sini lebih dekat ke estimasi distribusional daripada ekstrapolasi geometrik. Klaim geometri EMBEDDING tidak tertegakkan oleh run ini.",
+      "RUN GERBANG, bukan run paper. Dataset ini jadi dataset paper hanya jika lulus, dan angka",
+      "  paper harus dari porsi evaluasi yang tidak tersentuh keputusan gerbang."
+    ]
+  },
+  "conclusion": "LULUS",
+  "written_at": "2026-08-13T02:11:07"
+}

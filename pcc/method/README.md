@@ -10,14 +10,12 @@
 
 - **Pre-registration:** [`reports/prereg_imagenet_gate.md`](../reports/prereg_imagenet_gate.md)
   (Amendments 10–11), criteria written before the run.
-- **Result:** `reports/05_imagenet_gate_ccc_imagenet.json`, produced by
-  [`notebooks/05_imagenet_gate.ipynb`](../../notebooks/05_imagenet_gate.ipynb) — CCC ImageNet dump,
-  1000 classes, 1,153,051 rows.
-  **⚠ NOT YET IN THE REPO.** The notebook writes it on Colab; no run artifact has been committed
-  back. Right now the gate evidence exists only in run output pasted into a chat, which is not a
-  reproducible record. The JSON from the run that unblocked this directory must be committed before
-  any table cites it. Numbers in the table below are transcribed from that run output and are
-  therefore **unverifiable from this repo alone** until it lands.
+- **Result:** [`reports/05_imagenet_gate_ccc_imagenet.json`](../reports/05_imagenet_gate_ccc_imagenet.json)
+  — CCC ImageNet dump, 1000 classes, 1,153,051 rows, produced by
+  [`notebooks/05_imagenet_gate.ipynb`](../../notebooks/05_imagenet_gate.ipynb) and **committed
+  2026-08-13** (`written_at 2026-08-13T02:11:07`, run at `git_commit e63f73e`). Every number in the
+  table below is checkable against that file; the earlier gap — evidence existing only as pasted run
+  output — is closed.
 - **Held-out-class fallback, frozen before results:** [`reports/fallback_policy.md`](../reports/fallback_policy.md)
 
 | Criterion | Required | Output-space φ | **Head-weight φ (`w_y`)** |
