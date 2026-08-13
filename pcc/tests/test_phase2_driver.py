@@ -40,6 +40,7 @@ def _args(world, **over):
     a = dict(scores=world["scores"], labels=world["labels"], dataset="synth",
              reports_dir=str(world["tmp"] / "reports"), alpha=0.10, n_cal=10,
              heldout_frac=0.30, frac_desc=0.40, frac_cal=0.30, max_rows=None,
+             eval_scores=None, eval_labels=None,
              phi="head", head_weights=world["head"], head_bias=None,
              distance_holdout="w_cos_knn_1", stat="worst", ccc_root=None,
              seed=0, name=None, print_json=False)
@@ -111,10 +112,64 @@ def test_knn_ks_are_derived_from_K_and_the_drop_is_recorded(world):
     assert not any("50" in f for f in res["pcc"]["features"])
 
 
+def test_unreachable_n_cal_fails_with_an_actionable_message_not_a_deep_one(world):
+    """Pl@ntNet's released calibration dump has a median of 2 rows per class, so n_cal=25
+    is impossible there by construction. Without a pre-flight check the failure surfaces
+    much deeper as 'too few usable TRAIN classes (0)', which says nothing about the cause.
+    The message must name the achievable n_cal -- and must NOT lower it automatically,
+    since n_cal is a pre-registered criterion."""
+    with pytest.raises(ValueError) as ei:
+        drv.run(_args(world, n_cal=10_000))
+    msg = str(ei.value)
+    assert "reach n_cal=10000" in msg
+    assert "CAL rows per class" in msg
+    assert "will not lower it for you" in msg
+
+
+def test_cal_rows_per_class_is_reported_so_the_limit_is_visible(world):
+    res = drv.run(_args(world))
+    c = res["cal_rows_per_seen_class"]
+    assert c["min"] <= c["median"] <= c["max"]
+    assert c["median"] > 0
+
+
 def test_unknown_distance_holdout_fails_loudly_with_the_available_names(world):
     with pytest.raises(ValueError) as ei:
         drv.run(_args(world, distance_holdout="prof_knn_1"))     # output-family name
     assert "not a descriptor of the 'head' family" in str(ei.value)
+
+
+def test_separate_eval_dump_uses_all_of_it_and_splits_the_other_two_ways(world, tmp_path):
+    """LTC releases cal and test apart. Splitting the test dump three ways would leave
+    ~1 evaluation row per class on Pl@ntNet, below the pre-registered regime-B threshold.
+    With a separate eval dump, EVERY row of it must be used for evaluation."""
+    rng = np.random.default_rng(5)
+    K = world["K"]
+    n_ev = 37 * K
+    y_e = np.repeat(np.arange(K), 37)
+    P = rng.random((n_ev, K)).astype(np.float32)
+    P /= P.sum(1, keepdims=True)
+    sp, lp = tmp_path / "se.npy", tmp_path / "ye.npy"
+    np.save(sp, P)
+    np.save(lp, y_e)
+
+    res = drv.run(_args(world, eval_scores=str(sp), eval_labels=str(lp)))
+    assert res["eval_from_separate_dump"] is True
+    assert res["split_sizes"]["eval"] == n_ev            # all of it, not 30%
+    # DESC+CAL now come from the whole main dump, so CAL is larger than in the 3-way split
+    three = drv.run(_args(world))
+    assert res["split_sizes"]["cal_seen"] > three["split_sizes"]["cal_seen"]
+
+
+def test_separate_eval_dump_must_match_the_class_count(world, tmp_path):
+    y_e = np.repeat(np.arange(world["K"] - 1), 5)
+    P = np.full((len(y_e), world["K"] - 1), 1.0 / (world["K"] - 1), dtype=np.float32)
+    sp, lp = tmp_path / "bad_s.npy", tmp_path / "bad_y.npy"
+    np.save(sp, P)
+    np.save(lp, y_e)
+    with pytest.raises(ValueError) as ei:
+        drv.run(_args(world, eval_scores=str(sp), eval_labels=str(lp)))
+    assert "eval dump has" in str(ei.value)
 
 
 def test_measurability_flags_a_longtail_slice_as_regime_B():

@@ -96,6 +96,19 @@ def _load(scores_path, labels_path, max_rows, seed):
     return S, y, K, cnt_full, int(len(y_full))
 
 
+def _two_way_split(y, K, frac_desc, seed):
+    """DESC / CAL only — used when EVAL comes from a separate released dump."""
+    rng = np.random.default_rng(seed)
+    role = np.empty(len(y), dtype="<U4")
+    for c in range(K):
+        idx = np.where(y == c)[0]
+        rng.shuffle(idx)
+        n_d = int(round(frac_desc * len(idx)))
+        role[idx[:n_d]] = "desc"
+        role[idx[n_d:]] = "cal"
+    return np.where(role == "desc")[0], np.where(role == "cal")[0]
+
+
 def _three_way_split(y, K, frac_desc, frac_cal, seed):
     rng = np.random.default_rng(seed)
     role = np.empty(len(y), dtype="<U4")
@@ -282,8 +295,23 @@ def run(args) -> dict:
     set_seed(args.seed)
     S_all, y_all, K, cnt_full, n_dump = _load(args.scores, args.labels,
                                               args.max_rows, args.seed)
-    i_desc, i_cal, i_eval = _three_way_split(y_all, K, args.frac_desc,
-                                             args.frac_cal, args.seed)
+
+    # LTC releases SEPARATE calibration and test dumps. Splitting the test dump three
+    # ways would leave ~1 evaluation row per class on Pl@ntNet — worse than the regime-B
+    # threshold this project pre-registered. When an eval dump is supplied, the main dump
+    # provides DESC+CAL and the whole eval dump is EVAL, which is also how LTC itself
+    # evaluates. See reports/prereg_metrics_per_dataset.md.
+    S_eval_sep = None
+    if args.eval_scores:
+        i_desc, i_cal = _two_way_split(y_all, K, args.frac_desc, args.seed)
+        i_eval = np.array([], int)
+        S_e, y_e, K_e, _, _ = _load(args.eval_scores, args.eval_labels, None, args.seed)
+        if K_e != K:
+            raise ValueError("eval dump has {} classes, cal dump has {}".format(K_e, K))
+        S_eval_sep = (S_e, y_e)
+    else:
+        i_desc, i_cal, i_eval = _three_way_split(y_all, K, args.frac_desc,
+                                                 args.frac_cal, args.seed)
 
     # --- held-out classes: their calibration rows are DELETED, not thinned ------
     rng = np.random.default_rng(args.seed + 10_000)
@@ -296,8 +324,12 @@ def run(args) -> dict:
     S_desc = thr_lac(S_all[i_desc])
     S_cal = thr_lac(S_all[i_cal_seen])
     y_cal = y_all[i_cal_seen]
-    S_ev = thr_lac(S_all[i_eval])
-    y_ev = y_all[i_eval]
+    if S_eval_sep is None:
+        S_ev = thr_lac(S_all[i_eval])
+        y_ev = y_all[i_eval]
+    else:
+        S_ev = thr_lac(S_eval_sep[0])
+        y_ev = S_eval_sep[1]
 
     # φ is built on DESC only. Held-out classes keep their descriptors -- that is the
     # whole point: φ needs no labels, so it exists for a class with no calibration data.
@@ -334,10 +366,34 @@ def run(args) -> dict:
         if m.sum() >= args.n_cal:
             delta_obs[c] = float(np.quantile(S_cal[m, c], 1 - args.alpha)) - q_global
 
+    # PRE-FLIGHT. g_theta needs classes whose delta_y is observable, and on a long-tail
+    # released dump that can be ZERO: Pl@ntNet's calibration dump has a median of 2 rows
+    # per class, so n_cal=25 is unreachable there by construction. Without this check the
+    # failure surfaces much deeper as "too few usable TRAIN classes (0)", which says
+    # nothing about the cause. Reported with the n_cal that IS achievable -- but never
+    # applied automatically, because silently lowering n_cal changes the criterion.
     if args.distance_holdout not in names:
         raise ValueError("--distance-holdout {!r} is not a descriptor of the {!r} family; "
                          "available: {}".format(args.distance_holdout, args.phi, names))
     feats = [f for f in names if f != args.distance_holdout]
+
+    seen_counts = np.sort(n_per_class[seen])[::-1]
+    n_trainable = int(np.isfinite(delta_obs[seen]).sum())
+    min_trainable = len(feats) + 2
+    if n_trainable < min_trainable:
+        achievable = [int(seen_counts[i]) for i in
+                      (min_trainable - 1, min(len(seen_counts), 30) - 1)
+                      if i < len(seen_counts)]
+        raise ValueError(
+            "only {} of {} seen classes reach n_cal={} in the CAL slice, but g_theta needs "
+            "at least {} (p+2 for {} features). CAL rows per class: median {}, max {}. "
+            "n_cal values that WOULD work: <= {} for {} classes, <= {} for {} classes. "
+            "Lower --n-cal explicitly -- it is a pre-registered criterion, so this driver "
+            "will not lower it for you.".format(
+                n_trainable, len(seen), args.n_cal, min_trainable, len(feats),
+                int(np.median(n_per_class[seen])), int(seen_counts[0]),
+                achievable[0] if achievable else "n/a", min_trainable,
+                achievable[-1] if achievable else "n/a", min(len(seen_counts), 30)))
     model = fit_pcc(Phi, names, delta_obs, n_per_class, q_global, args.alpha,
                     score_matrix_fit=S_cal, labels_fit=y_cal, train_classes=seen,
                     features=feats, stat=args.stat, seed=args.seed)
@@ -346,11 +402,15 @@ def run(args) -> dict:
     res = {
         "n_classes": K, "n_seen": int(len(seen)), "n_heldout": int(len(heldout)),
         "split_sizes": {"desc": int(len(i_desc)), "cal_seen": int(len(i_cal_seen)),
-                        "eval": int(len(i_eval))},
+                        "eval": int(len(y_ev))},
+        "eval_from_separate_dump": bool(S_eval_sep is not None),
         "subsample_frac_of_dump": float(len(y_all) / n_dump),
         "q_global": q_global,
         "knn_ks_used": list(knn_ks), "knn_ks_dropped_K_too_small": list(knn_dropped),
         "delta_obs_defined": int(np.isfinite(delta_obs).sum()),
+        "cal_rows_per_seen_class": {"median": float(np.median(n_per_class[seen])),
+                                    "min": int(n_per_class[seen].min()),
+                                    "max": int(n_per_class[seen].max())},
         "pcc": {"lambda": model.lam, "n_star": model.n_star, "offset": model.offset,
                 "n_star_selection": model.threshold_rule["selected"],
                 "n_star_mse_crossing_secondary":
@@ -410,6 +470,10 @@ def main(argv=None) -> int:
     p.add_argument("--heldout-frac", type=float, default=0.30)
     p.add_argument("--frac-desc", type=float, default=0.40)
     p.add_argument("--frac-cal", type=float, default=0.30)
+    p.add_argument("--eval-scores", default=None,
+                   help="separate EVAL dump (LTC releases cal and test apart). When given, "
+                        "the main dump supplies DESC+CAL and this whole dump is EVAL.")
+    p.add_argument("--eval-labels", default=None)
     p.add_argument("--max-rows", type=int, default=None)
     p.add_argument("--phi", choices=("output", "head"), default="head")
     p.add_argument("--head-weights", default=None)
@@ -430,6 +494,8 @@ def main(argv=None) -> int:
         p.error("--phi head requires --head-weights")
     if a.distance_holdout is None:
         a.distance_holdout = "w_cos_knn_1" if a.phi == "head" else "prof_knn_1"
+    if bool(a.eval_scores) != bool(a.eval_labels):
+        p.error("--eval-scores and --eval-labels must be given together")
 
     t0 = time.time()
     res = run(a)
