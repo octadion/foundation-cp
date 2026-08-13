@@ -324,12 +324,17 @@ def run(args) -> dict:
     S_desc = thr_lac(S_all[i_desc])
     S_cal = thr_lac(S_all[i_cal_seen])
     y_cal = y_all[i_cal_seen]
+    used_separate_eval = S_eval_sep is not None
     if S_eval_sep is None:
         S_ev = thr_lac(S_all[i_eval])
         y_ev = y_all[i_eval]
     else:
+        # thr_lac copies, so the raw eval dump must be released immediately -- on iNat it
+        # is 1.5 GB and keeping both alive is the difference between fitting in Colab's
+        # standard RAM and not.
         S_ev = thr_lac(S_eval_sep[0])
         y_ev = S_eval_sep[1]
+        S_eval_sep = (None, y_ev)
 
     # φ is built on DESC only. Held-out classes keep their descriptors -- that is the
     # whole point: φ needs no labels, so it exists for a class with no calibration data.
@@ -403,7 +408,7 @@ def run(args) -> dict:
         "n_classes": K, "n_seen": int(len(seen)), "n_heldout": int(len(heldout)),
         "split_sizes": {"desc": int(len(i_desc)), "cal_seen": int(len(i_cal_seen)),
                         "eval": int(len(y_ev))},
-        "eval_from_separate_dump": bool(S_eval_sep is not None),
+        "eval_from_separate_dump": bool(used_separate_eval),
         "subsample_frac_of_dump": float(len(y_all) / n_dump),
         "q_global": q_global,
         "knn_ks_used": list(knn_ks), "knn_ks_dropped_K_too_small": list(knn_dropped),
