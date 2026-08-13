@@ -81,26 +81,41 @@ worst-class delta rose from **+0.26…+0.36 to +0.43…+0.57**, and the rule sel
 `n_star = None` — prediction beats the observed quantile even for classes that have data,
 which is itself a result worth reporting.
 
-**Flaw 2 — in-sample optimism. OPEN.** The null world is still negative on Table 1
-(−0.05…−0.17, unchanged), and the currency fix did not touch it. The reason is now
-identified: δ_obs is computed on the CAL slice, and `n_star` is selected on that *same*
-slice, so the selection sees the observed correction as better than it is. Table 1 is then
-read on EVAL, where the optimism disappears. The rule is scoring a fit on its own
-training data.
+**Flaw 2 — in-sample optimism. FIXED.** Fixing the currency did not help the null world
+at all (Table 1 stayed at −0.05…−0.17), and the reason turned out to be a second,
+independent mistake: δ_obs was estimated on the CAL slice and `n_star` was selected on
+that *same* slice, so the observed correction was scored on its own training data. The
+optimism only disappeared on EVAL, which is where Table 1 is read.
 
-The fix is to select `n_star` **out-of-sample within CAL** — estimate δ_obs on one half,
-score equity on the other, swap, average — so the comparison between "observed" and
-"predicted" is fair. That is a change to the method, not a patch, so it gets its own
-measurement rather than being slipped in.
+`select_n_star_oos` (now the default, `n_star_rule="oos"`) measures each candidate `n` for
+what it actually claims: estimate δ_y from `n` rows of a class, then score equity on that
+class's **remaining** rows, with the predict-only arm scored on the *same* held-out rows so
+the two are comparable. `n_star` is the smallest `n` whose observed arm is at least as good
+as predicting; if none is, it returns `None`.
 
-**Consequence, in force until Flaw 2 is fixed: Table 1 numbers from this driver must not
-be read as the method's seen-class performance.** Table 2 (`n_y = 0`) is unaffected —
-there is no observed δ_y there, so `n_star` never fires, and the null world confirms it:
-Table 2 delta is exactly `+0.0000` with λ collapsing to 0. Nothing already reported is
-affected either: on real ImageNet with ~76 calibration samples per class, observed
-per-class quantiles clearly help (`reports/baseline_reproduction.md`: classwise
-`max_gap 0.173` vs standard `0.420`), so the null world is the adversarial end of the
-noise range, not the expected one.
+**Flaw 3 — degenerate candidates read as ties. FIXED in the same pass.** The first version
+reported `n_star = 50` in both a signal and a null world. It was meaningless: CAL held ~42
+rows per class, so at `n = 50` no class could be split, both arms became the identical
+vector, and `>=` held degenerately. Candidates that fewer than `max(5, 10% of train
+classes)` classes can support are now excluded and listed under
+`candidates_not_evaluable`, with the maximum number of splittable classes recorded.
+
+### Where that leaves the three smoke worlds
+
+| world | λ | `n_star` | Table 1 (seen) | Table 2 (`n_y=0`) | verdict |
+|---|---|---|---|---|---|
+| φ predicts difficulty | 0.20–0.30 | `None` | **+0.43 … +0.57** | **+0.31 … +0.50** | LULUS |
+| null, φ irrelevant | **0.000** | `None` | **+0.0000** | **+0.0000** | GAGAL |
+
+The do-no-harm floor now holds on *both* tables in the null world, and the signal world
+lost nothing to the fix. `n_star = None` there is a real result, not a fallback: on ~42
+calibration rows per class, the observed per-class quantile never beat the prediction at
+any evaluable `n`.
+
+Nothing previously reported is affected: on real ImageNet with ~76 calibration samples per
+class, observed per-class quantiles clearly help (`reports/baseline_reproduction.md`:
+classwise `max_gap 0.173` vs standard `0.420`), so these synthetic worlds bracket the
+noise range rather than describe it.
 
 ### A leak that was in the first version, found before it produced a result
 

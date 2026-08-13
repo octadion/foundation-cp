@@ -32,18 +32,24 @@ THREE THINGS THE GATE EVIDENCE FORCED INTO THE DESIGN
   crosses the sampling noise of the empirical class quantile against g_θ's own
   prediction error, both measured on TRAIN classes only.
 
-OPEN FLAW IN `n_star` SELECTION (2026-08-13) — see README.md
-------------------------------------------------------------
-The wrong-currency flaw is fixed: `select_n_star` now chooses by the objective, not by an
-MSE crossing. A second flaw remains. δ_obs is estimated on the CAL slice and `n_star` is
-selected on that **same** slice, so the observed correction is scored on its own training
-data and looks better than it is; the optimism disappears on EVAL. Measured: in a null
-world Table 1 stays at −0.05…−0.17 worst-class coverage. The fix is out-of-sample
-selection within CAL (estimate δ_obs on one half, score on the other, swap, average),
-which is a change to the method and so gets its own measurement.
+HOW `n_star` SELECTION ARRIVED HERE (2026-08-13) — see README.md
+----------------------------------------------------------------
+Three flaws, found in order, each by measurement rather than review:
 
-**Until then, Table 1 (seen-class) numbers must not be read as the method's performance.**
-Table 2 (`n_y = 0`) is unaffected: no observed δ_y exists there, so `n_star` never fires.
+1. **Wrong currency.** `data_threshold` crossed mean squared errors while the objective is
+   worst-class equity. Same mistake Amendment 8 records for λ. Kept as a reported
+   secondary; it no longer decides.
+2. **In-sample optimism.** `select_n_star` scored the observed correction on the very rows
+   δ_obs came from, so a null world still lost 0.05–0.17 worst-class coverage on seen
+   classes. `select_n_star_oos` scores both arms on held-out rows instead, and is the
+   default.
+3. **Degenerate candidates.** A candidate no class has the rows to support leaves both arms
+   identical, so `>=` held and a meaningless `n_star` was reported (50, on a slice with ~42
+   rows per class). Such candidates are now excluded and listed.
+
+After all three: in a null world both tables are exactly +0.0000 — the machinery neither
+invents structure nor damages what it cannot improve — and in a signal world Table 1 is
++0.43…+0.57 and Table 2 +0.31…+0.50.
 """
 from __future__ import annotations
 
@@ -65,6 +71,7 @@ __all__ = [
     "quantile_noise_at_n",
     "data_threshold",
     "select_n_star",
+    "select_n_star_oos",
     "blend_delta",
     "recalibrate_marginal",
     "fit_pcc",
@@ -246,6 +253,92 @@ def select_n_star(score_matrix, labels, train_classes, alpha, q_global,
             "selected_by": "objective (" + stat + ") on TRAIN label space"}
 
 
+def select_n_star_oos(score_matrix, labels, train_classes, alpha, q_global,
+                      delta_hat, lam, *, candidates=(5, 10, 20, 30, 50, 75),
+                      n_rep: int = 3, stat: str = "worst", min_score_rows: int = 8,
+                      seed: int = 0) -> dict:
+    """§6.7 selected by the objective **out of sample**. This is the default rule.
+
+    `select_n_star` scored the observed correction on the very rows δ_obs was estimated
+    from, so it looked better than it is — measured: a null world stayed at −0.05…−0.17
+    worst-class coverage on seen classes even after the currency was fixed, because the
+    optimism only disappears on evaluation data.
+
+    Here each candidate `n` is measured for what it actually claims: estimate δ_y from
+    `n` rows of a class, then score coverage equity on that class's *remaining* rows.
+    `n_star` is the smallest `n` whose observed correction beats simply predicting — and
+    if none does, `None`, meaning the prediction is never worse and should always be used.
+
+    Costs `len(candidates) * n_rep` matched-size searches on the TRAIN label space, which
+    is why the default candidate grid is coarser than the in-sample rule's.
+    """
+    S = np.asarray(score_matrix)
+    y = np.asarray(labels, int)
+    tr = np.asarray(train_classes, int)
+    d_hat = np.where(np.isfinite(np.asarray(delta_hat, float)), delta_hat, 0.0)
+    rng = np.random.default_rng(seed)
+    lo = 1.0 - float(alpha)
+
+    by_class = {int(c): np.where(y == c)[0] for c in tr}
+    min_est_classes = max(5, int(0.10 * len(tr)))
+    curve_obs, curve_pred, skipped = {}, {}, {}
+
+    for n in candidates:
+        obs_vals, pred_vals, est_counts = [], [], []
+        for _ in range(n_rep):
+            est, sc = {}, []
+            for c, idx in by_class.items():
+                if len(idx) < n + min_score_rows:
+                    sc.append(idx)              # too small to split: scoring only
+                    continue
+                p = rng.permutation(idx)
+                est[c] = p[:n]
+                sc.append(p[n:])
+            est_counts.append(len(est))
+            score_rows = np.concatenate(sc) if sc else np.array([], int)
+            if len(score_rows) < min_score_rows or len(est) < min_est_classes:
+                continue
+
+            d_n = np.full(len(d_hat), np.nan)
+            for c, rows in est.items():
+                d_n[c] = float(np.quantile(S[rows, c], lo)) - float(q_global)
+
+            S_sc, y_sc, K_sc, ids = restrict_to_classes(S[score_rows], y[score_rows], tr)
+            base = np.full(K_sc, float(q_global))
+            target = avg_set_size_at_shift(S_sc, base, 0.0)
+
+            d_use = np.where(np.isfinite(d_n), d_n, lam * d_hat)
+            obs_vals.append(equity_at_matched_size(S_sc, y_sc, K_sc,
+                                                   base + d_use[ids], target)[stat])
+            pred_vals.append(equity_at_matched_size(S_sc, y_sc, K_sc,
+                                                    base + lam * d_hat[ids],
+                                                    target)[stat])
+        if obs_vals:
+            curve_obs[str(int(n))] = float(np.mean(obs_vals))
+            curve_pred[str(int(n))] = float(np.mean(pred_vals))
+        else:
+            # A candidate no class has the rows to support is NOT evidence that the
+            # observed correction ties the prediction — with no estimate the two arms are
+            # literally the same vector, so `>=` would hold degenerately and report a
+            # meaningless n_star. Excluded and recorded instead.
+            skipped[str(int(n))] = {
+                "reason": "fewer than {} classes could spare {} estimation rows".format(
+                    min_est_classes, int(n)),
+                "max_classes_splittable": int(max(est_counts)) if est_counts else 0}
+
+    n_star = None
+    for k in sorted(curve_obs, key=lambda s: int(s)):
+        if curve_obs[k] >= curve_pred[k]:
+            n_star = int(k)
+            break
+    return {"n_star": n_star, "stat": stat, "n_rep": int(n_rep),
+            "curve_observed": curve_obs, "curve_predicted_only": curve_pred,
+            "candidates_not_evaluable": skipped,
+            "min_est_classes_required": int(min_est_classes),
+            "selected_by": "objective (" + stat + "), OUT OF SAMPLE, TRAIN label space",
+            "value": curve_obs.get(str(n_star)) if n_star is not None else None}
+
+
 def blend_delta(delta_obs, delta_hat, n_per_class, n_star, lam) -> dict:
     """Combine the observed and predicted corrections per the §6.7 rule.
 
@@ -335,7 +428,7 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
             score_matrix_fit, labels_fit, train_classes,
             features: Optional[Sequence[str]] = None,
             ridge_alpha: float = 1.0, target_size: Optional[float] = None,
-            stat: str = "worst", n_folds: int = 5, n_star_rule: str = "objective",
+            stat: str = "worst", n_folds: int = 5, n_star_rule: str = "oos",
             recalibrate: bool = True, seed: int = 0) -> PCCModel:
     """Fit the whole method on the FIT slice and the TRAIN label space only.
 
@@ -372,7 +465,10 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
     lam_sel = select_shrinkage(S_tr, y_tr, K_tr, q_global, d_safe[ids_tr],
                                float(target_size), stat=stat)
 
-    if n_star_rule == "objective":
+    if n_star_rule == "oos":
+        ns_sel = select_n_star_oos(score_matrix_fit, labels_fit, tr, alpha, q_global,
+                                   d_hat, lam_sel["lambda"], stat=stat, seed=seed)
+    elif n_star_rule == "objective":
         ns_sel = select_n_star(score_matrix_fit, labels_fit, tr, alpha, q_global,
                                delta_obs, d_hat, n_per_class, lam_sel["lambda"],
                                stat=stat)
@@ -380,7 +476,7 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
         ns_sel = {"n_star": mse_rule["n_star"], "selected_by": "mse crossing (legacy)",
                   "curve": {}, "stat": stat, "value": float("nan")}
     else:
-        raise ValueError("n_star_rule must be 'objective' or 'mse'")
+        raise ValueError("n_star_rule must be 'oos', 'objective' or 'mse'")
 
     blend = blend_delta(delta_obs, d_hat, n_per_class, ns_sel["n_star"],
                         lam_sel["lambda"])

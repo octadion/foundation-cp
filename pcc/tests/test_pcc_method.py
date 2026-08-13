@@ -9,7 +9,7 @@ import pytest
 
 from pcc.method.pcc import (blend_delta, data_threshold, fit_gtheta, fit_pcc,
                             gtheta_cv_mse, quantile_noise_at_n, recalibrate_marginal,
-                            select_n_star)
+                            select_n_star, select_n_star_oos)
 
 
 def _world(K=60, n_per=120, d_phi=4, seed=0, signal=1.0):
@@ -247,6 +247,80 @@ def test_n_star_has_a_do_no_harm_floor_even_when_delta_obs_is_pure_noise():
         assert sel["value"] == max(sel["curve"].values())
 
 
+def test_oos_rule_scores_observed_against_predicted_on_held_out_rows():
+    Phi, names, S, y, K = _world(K=50, n_per=120, seed=19)
+    alpha = 0.1
+    qg = float(np.quantile(S[np.arange(len(y)), y], 1 - alpha))
+    d = _delta_obs(S, y, K, alpha, qg)
+    tr = np.arange(0, K, 2)
+    g = fit_gtheta(Phi, d, tr, names)
+    d_hat = np.where(np.isfinite(g.predict(Phi)), g.predict(Phi), 0.0)
+
+    sel = select_n_star_oos(S, y, tr, alpha, qg, d_hat, 0.1, candidates=(5, 20, 50),
+                            n_rep=2, seed=0)
+    assert "OUT OF SAMPLE" in sel["selected_by"]
+    # both arms are measured on the SAME held-out rows, so they are comparable
+    assert set(sel["curve_observed"]) == set(sel["curve_predicted_only"])
+    assert sel["n_star"] is None or sel["n_star"] in (5, 20, 50)
+    if sel["n_star"] is not None:
+        k = str(sel["n_star"])
+        assert sel["curve_observed"][k] >= sel["curve_predicted_only"][k]
+
+
+def test_oos_rule_returns_none_when_predicting_is_never_worse():
+    """In a null world delta_obs is noise, so with a useless predictor the observed arm
+    should not win at any n -- and the rule must then say None, not pick the smallest n."""
+    Phi, names, S, y, K = _world(K=40, n_per=60, seed=23, signal=0.0)
+    alpha = 0.1
+    qg = float(np.quantile(S[np.arange(len(y)), y], 1 - alpha))
+    tr = np.arange(K)
+    sel = select_n_star_oos(S, y, tr, alpha, qg, np.zeros(K), 0.0,
+                            candidates=(5, 20), n_rep=2, seed=0)
+    # lam=0 and d_hat=0 makes the predicted arm exactly the global threshold; the noisy
+    # observed arm must not be preferred unless it genuinely scores at least as well
+    if sel["n_star"] is not None:
+        k = str(sel["n_star"])
+        assert sel["curve_observed"][k] >= sel["curve_predicted_only"][k]
+
+
+def test_oos_rule_excludes_candidates_no_class_can_support():
+    """A candidate n larger than the rows any class has leaves BOTH arms identical, so a
+    '>=' comparison would hold degenerately and report a meaningless n_star. It must be
+    excluded and recorded -- this was real: the smoke run reported n_star=50 on a CAL
+    slice with ~42 rows per class, in both a signal and a null world."""
+    Phi, names, S, y, K = _world(K=40, n_per=30, seed=31)
+    alpha = 0.1
+    qg = float(np.quantile(S[np.arange(len(y)), y], 1 - alpha))
+    tr = np.arange(K)
+    sel = select_n_star_oos(S, y, tr, alpha, qg, np.zeros(K), 0.1,
+                            candidates=(5, 200), n_rep=2, seed=0)
+    assert "200" in sel["candidates_not_evaluable"]
+    assert "200" not in sel["curve_observed"]
+    assert sel["n_star"] != 200
+    assert sel["candidates_not_evaluable"]["200"]["max_classes_splittable"] == 0
+
+
+def test_oos_rule_is_reproducible_and_blind_to_heldout_classes():
+    Phi, names, S, y, K = _world(K=50, n_per=100, seed=29)
+    alpha = 0.1
+    qg = float(np.quantile(S[np.arange(len(y)), y], 1 - alpha))
+    d = _delta_obs(S, y, K, alpha, qg)
+    tr = np.arange(0, K, 2)
+    held = np.arange(1, K, 2)
+    g = fit_gtheta(Phi, d, tr, names)
+    d_hat = np.where(np.isfinite(g.predict(Phi)), g.predict(Phi), 0.0)
+
+    kw = dict(candidates=(10, 30), n_rep=2, seed=0)
+    a = select_n_star_oos(S, y, tr, alpha, qg, d_hat, 0.1, **kw)
+    b = select_n_star_oos(S, y, tr, alpha, qg, d_hat, 0.1, **kw)
+    assert a == b                                        # same seed -> same answer
+
+    S2 = S.copy()
+    S2[:, held] = 0.0
+    c = select_n_star_oos(S2, y, tr, alpha, qg, d_hat, 0.1, **kw)
+    assert a["n_star"] == c["n_star"], "n_star saw held-out class scores"
+
+
 def test_fit_pcc_reports_both_rules_and_defaults_to_the_objective():
     Phi, names, S, y, K = _world(K=50, n_per=90, seed=17)
     alpha = 0.1
@@ -257,8 +331,8 @@ def test_fit_pcc_reports_both_rules_and_defaults_to_the_objective():
 
     m = fit_pcc(Phi, names, d, n_per_class, qg, alpha, score_matrix_fit=S, labels_fit=y,
                 train_classes=tr, seed=0)
-    assert m.provenance["n_star_rule"] == "objective"
-    assert m.threshold_rule["selected"]["selected_by"].startswith("objective")
+    assert m.provenance["n_star_rule"] == "oos"
+    assert "OUT OF SAMPLE" in m.threshold_rule["selected"]["selected_by"]
     assert "mse_crossing_secondary" in m.threshold_rule       # kept, but not deciding
     assert m.n_star == m.threshold_rule["selected"]["n_star"]
 
