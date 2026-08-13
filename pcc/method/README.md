@@ -46,6 +46,43 @@ Two constraints this evidence puts on the implementation:
 2. **The honest number is 42%, not 76%.** An exogenous descriptor buys less than a
    circular one. Both belong in the paper, side by side.
 
+## Implementation — [`pcc.py`](pcc.py), 13 tests
+
+| Piece | What it is |
+|---|---|
+| `fit_gtheta` | ridge φ → δ̂, fit on TRAIN classes only |
+| `gtheta_cv_mse` | out-of-fold error of g_θ, within TRAIN classes |
+| `quantile_noise_at_n` | MSE of the empirical δ_y from only `n` samples |
+| `data_threshold` | **§6.7**: smallest `n` where the observed δ_y beats the predicted one |
+| `blend_delta` | observed above `n_star`, `λ·δ̂` below, global threshold when neither exists |
+| `recalibrate_marginal` | one scalar offset restoring marginal coverage |
+| `fit_pcc` | the facade, plus a `provenance` dict recording where every free parameter was fit |
+
+**§6.7 is derived, not picked.** `n_star` is where the sampling noise of the empirical
+class quantile crosses g_θ's own out-of-fold error — both measured on TRAIN classes.
+When g_θ wins at every tested `n`, `n_star` is `None` and that is reported, not turned
+into a number.
+
+**Shrinkage applies only to the predicted part.** Where δ_y is observed with enough
+samples it is a direct estimate; shrinking it toward the global threshold would discard
+information the data does contain.
+
+### A leak that was in the first version, found before it produced a result
+
+`fit_pcc` initially selected λ over **all** classes, so a free parameter could tune
+itself on the very classes the result is read from — exactly what Amendment 8 exists to
+prevent, and what `setsize_translation_shrunk` avoids via `restrict_to_classes`. It was
+not hypothetical: on the test world, corrupting held-out class scores moved the selected
+λ from **0.3 to 0.5**, and the clean-data λ differed too. Fixed by restricting to the
+TRAIN label space with the same helper, so the two code paths agree by construction
+rather than by comment. `test_lambda_and_offset_are_blind_to_heldout_class_SCORES`
+pins it, and was verified to fail against the old path.
+
+The marginal offset is fit on TRAIN-class rows only for the same reason — and because
+in deployment a class with `n_y = 0` contributes no calibration rows at all. The
+consequence is stated rather than glossed: **the marginal guarantee is over the
+seen-class distribution, not the full population.**
+
 ## Open, and not to be papered over
 
 - ImageNet is **balanced**; the long-tail application claim is unresolved. The gate
