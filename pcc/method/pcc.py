@@ -31,6 +31,17 @@ THREE THINGS THE GATE EVIDENCE FORCED INTO THE DESIGN
 - **The data-threshold rule (§6.7) must be derived, not picked.** `data_threshold`
   crosses the sampling noise of the empirical class quantile against g_θ's own
   prediction error, both measured on TRAIN classes only.
+
+KNOWN FLAW IN `data_threshold` (2026-08-13) — see README.md
+-----------------------------------------------------------
+It selects `n_star` by mean squared error, but the objective is worst-class equity at
+matched set size. Wrong currency, and the same mistake Amendment 8 was written to fix
+for λ. Measured consequence in a null world: λ correctly goes to 0 and held-out classes
+are untouched, yet seen classes lose 0.05–0.17 worst-class coverage because their noisy
+observed δ_y is used anyway. `n_star` should be chosen by the objective on TRAIN classes,
+with the MSE crossing kept as a reported secondary. **Table 1 (seen-class) numbers must
+not be read as the method's performance until that is fixed.** Table 2 (`n_y = 0`) is
+unaffected: there is no observed δ_y there, so the rule never fires.
 """
 from __future__ import annotations
 

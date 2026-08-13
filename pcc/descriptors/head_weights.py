@@ -59,17 +59,31 @@ def head_cos_knn(W, ks=(1, 5, 10, 50)):
     δ_y should differ between them — a mean alone cannot separate those.
     """
     W = np.asarray(W, float)
+    K = W.shape[0]
+    if K < 3:
+        raise ValueError(f"need at least 3 classes for neighbour descriptors, got {K}")
     Wn = _unit_rows(W)
     sim = Wn @ Wn.T
     np.fill_diagonal(sim, -np.inf)          # exclude self
     dist = 1.0 - sim
     order = np.sort(dist, axis=1)
+
+    # Only K-1 real neighbours exist; the self-distance is +inf and sorts LAST, so any
+    # window of width K would swallow it and poison the statistic with inf/NaN. That was
+    # a latent bug: with K=1000 the 50-wide window never reached it, so it only fired for
+    # K <= 50. Every window is therefore capped at K-1 explicitly.
+    n_real = K - 1
     out = {}
     for k in ks:
-        kk = min(k, order.shape[1])
-        out[f"w_cos_knn_{k}"] = order[:, :kk].mean(axis=1)
-    kk = min(50, order.shape[1])
-    out["w_neigh_spread"] = order[:, :kk].std(axis=1)
+        if k > n_real:
+            raise ValueError(
+                f"k={k} exceeds the {n_real} available neighbours for K={K} classes; "
+                "a column named w_cos_knn_{k} would not be a {k}-NN statistic. Pass a "
+                "feasible `ks` (callers deriving it from K: use k < K).".format(k=k))
+        out[f"w_cos_knn_{k}"] = order[:, :k].mean(axis=1)
+
+    spread_w = min(50, n_real)
+    out["w_neigh_spread"] = order[:, :spread_w].std(axis=1)
     out["w_margin_nearest"] = order[:, 0]   # distance to the single closest rival
     return out
 

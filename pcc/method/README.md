@@ -65,6 +65,37 @@ into a number.
 samples it is a direct estimate; shrinking it toward the global threshold would discard
 information the data does contain.
 
+### KNOWN FLAW, found by the smoke run, not yet fixed (2026-08-13)
+
+`data_threshold` selects `n_star` by comparing **mean squared error** — the empirical
+class quantile's sampling noise against g_θ's out-of-fold MSE. But the objective is
+**worst-class equity at matched set size**. Those are not the same currency, and this
+project already learned that once: Amendment 8 exists because a worst-class objective is
+governed by the *largest* error, not the mean squared one, which is why λ had to be
+selected by the objective rather than by R².
+
+The smoke run exposed the consequence. In a NULL world (φ carries no information about
+difficulty), λ correctly collapses to **0.000** and held-out classes are left untouched
+(Table 2 delta exactly `+0.0000` — the machinery does not invent structure). Yet
+**Table 1 goes negative, −0.05 to −0.17 worst-class coverage**, because seen classes
+still use their observed δ_y: at ~29 calibration samples per class those quantiles are
+noisy, and noise in thresholds at matched size hurts the worst class. `n_star` (20–25)
+did not stop it, because by the MSE test the observed estimate genuinely *was* the more
+accurate one — it just was not the better one for this objective.
+
+This is not a bug in the plumbing; it is the wrong selection criterion. The fix is to
+choose `n_star` the way λ is chosen — by the objective, on the TRAIN label space only —
+keeping the MSE crossing as a reported secondary. **Until that lands, Table 1 numbers
+from this driver must not be read as the method's seen-class performance.**
+
+Two things this does *not* invalidate:
+
+- Table 2 (`n_y = 0`), where no observed δ_y exists and the rule never applies.
+- Anything already reported: on real ImageNet with ~76 calibration samples per class,
+  observed per-class quantiles clearly help (`reports/baseline_reproduction.md`:
+  classwise `max_gap 0.173` vs standard `0.420`). The null world is the adversarial end
+  of the noise range, not the expected one.
+
 ### A leak that was in the first version, found before it produced a result
 
 `fit_pcc` initially selected λ over **all** classes, so a free parameter could tune
