@@ -112,23 +112,118 @@ def _three_way_split(y, K, frac_desc, frac_cal, seed):
             np.where(role == "eval")[0])
 
 
+# ----------------------------------------------- measurability (pre-registered)
+# reports/prereg_metrics_per_dataset.md, written before any Phase 2 run. Thresholds are
+# choices, fixed here so they cannot be moved once results are visible.
+PER_CLASS_MIN_EVAL = 30      # below this median, a per-class coverage estimate is noise
+BIN_MIN_EVAL_ROWS = 200      # pooled evaluation rows required per prevalence bin
+PER_CLASS_STATS = ("worst", "max_gap", "p05", "p10")
+
+
+def measurability(y_eval, classes) -> dict:
+    """Can per-class coverage be estimated at all on this evaluation slice?
+
+    With 2 evaluation samples a class's coverage can only be 0, 0.5 or 1, so `min` over
+    thousands of such classes is ~0 for ANY method including an oracle — it measures
+    sampling noise, not the method. Pl@ntNet's median is 3 and iNat's is 2, so this is not
+    hypothetical.
+    """
+    per = np.bincount(np.asarray(y_eval, int),
+                      minlength=int(max(classes)) + 1)[np.asarray(classes, int)]
+    med = float(np.median(per)) if len(per) else 0.0
+    ok = bool(med >= PER_CLASS_MIN_EVAL)
+    return {"median_eval_per_class": med, "min_eval_per_class": int(per.min()) if len(per) else 0,
+            "classes_with_zero_eval": int((per == 0).sum()),
+            "coverage_granularity": (1.0 / med) if med else float("inf"),
+            "per_class_stats_reportable": ok,
+            "regime": "A (per-class)" if ok else "B (prevalence bins)",
+            "primary_stat": "worst" if ok else "bin_worst",
+            "borderline": bool(25 <= med <= 35),
+            "threshold": PER_CLASS_MIN_EVAL}
+
+
+def prevalence_bins(y_eval, classes, counts, min_rows=BIN_MIN_EVAL_ROWS):
+    """Classes sorted by prevalence, accumulated greedily until each bin holds `min_rows`
+    evaluation rows. A short final bin is merged backwards, so no half-filled bin can
+    dominate the minimum."""
+    cls = np.asarray(classes, int)
+    order = cls[np.argsort(np.asarray(counts, float)[cls], kind="stable")]
+    per = np.bincount(np.asarray(y_eval, int), minlength=int(cls.max()) + 1)
+    bins, cur, cur_n = [], [], 0
+    for c in order:
+        cur.append(int(c))
+        cur_n += int(per[c])
+        if cur_n >= min_rows:
+            bins.append(cur)
+            cur, cur_n = [], 0
+    if cur:
+        if bins:
+            bins[-1].extend(cur)
+        else:
+            bins.append(cur)
+    return bins
+
+
+def _bin_coverage(S_sub, y_sub, thresholds, bins, id_of_class):
+    """Pooled coverage inside each bin, in the RESTRICTED label space."""
+    hit = S_sub[np.arange(len(y_sub)), y_sub] <= np.asarray(thresholds, float)[y_sub]
+    out = []
+    for b in bins:
+        idx = np.array([id_of_class[c] for c in b if c in id_of_class], int)
+        m = np.isin(y_sub, idx)
+        if m.any():
+            out.append(float(hit[m].mean()))
+    return out
+
+
 # ------------------------------------------------------------------- evaluation
-def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat):
-    """Equity of PCC vs the marginal threshold, inside one label space, matched size."""
+def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None):
+    """Equity of PCC vs the marginal threshold, inside one label space, matched size.
+
+    Per-class statistics that the pre-registration says are unmeasurable on this slice are
+    moved to `withheld_unmeasurable`: still computed, never allowed to decide anything.
+    """
     S_sub, y_sub, K_sub, ids = restrict_to_classes(S_ev, y_ev, classes)
     base = np.full(K_sub, float(q_global))
     target = avg_set_size_at_shift(S_sub, base, 0.0)
+    t_pcc = np.asarray(thresholds_full, float)[ids]
     e_base = equity_at_matched_size(S_sub, y_sub, K_sub, base, target)
-    e_pcc = equity_at_matched_size(S_sub, y_sub, K_sub,
-                                   np.asarray(thresholds_full, float)[ids], target)
-    return {
+    e_pcc = equity_at_matched_size(S_sub, y_sub, K_sub, t_pcc, target)
+
+    meas = measurability(y_sub, np.arange(K_sub))
+    out = {
         "n_classes": int(K_sub), "n_rows": int(len(y_sub)),
         "target_avg_set_size": float(target),
+        "measurability": meas,
         "uncorrected": e_base, "pcc": e_pcc,
         "delta": {k: e_pcc[k] - e_base[k] for k in e_base if k != "shift"},
         "size_matched": bool(abs(e_pcc["avg_set_size"] - e_base["avg_set_size"]) < 1e-2),
-        "pass": bool(e_pcc[stat] - e_base[stat] > 0),
     }
+
+    if not meas["per_class_stats_reportable"] and counts is not None:
+        id_of_class = {int(c): i for i, c in enumerate(ids)}
+        bins = prevalence_bins(y_ev, classes, counts)
+        sh_base = e_base["shift"]
+        sh_pcc = e_pcc["shift"]
+        cb = _bin_coverage(S_sub, y_sub, base + sh_base, bins, id_of_class)
+        cp = _bin_coverage(S_sub, y_sub, t_pcc + sh_pcc, bins, id_of_class)
+        out["bins"] = {"n_bins": len(bins),
+                       "classes_per_bin": [len(b) for b in bins],
+                       "uncorrected_bin_coverage": cb,
+                       "pcc_bin_coverage": cp}
+        if cb and cp:
+            out["uncorrected"]["bin_worst"] = float(min(cb))
+            out["pcc"]["bin_worst"] = float(min(cp))
+            out["delta"]["bin_worst"] = float(min(cp) - min(cb))
+        out["withheld_unmeasurable"] = {
+            k: {"uncorrected": e_base.get(k), "pcc": e_pcc.get(k),
+                "delta": (e_pcc.get(k, np.nan) - e_base.get(k, np.nan))}
+            for k in PER_CLASS_STATS if k in e_base}
+
+    primary = stat if meas["per_class_stats_reportable"] else meas["primary_stat"]
+    out["primary_stat"] = primary
+    out["pass"] = (bool(out["delta"][primary] > 0) if primary in out["delta"] else None)
+    return out
 
 
 def _baselines_table1(ccc_root, S_cal, y_cal, S_ev, y_ev, seen, alpha, seed):
@@ -265,10 +360,12 @@ def run(args) -> dict:
                 "lambda_curve_train": model.lambda_selection["curve"],
                 "features": list(model.gtheta.feature_names),
                 "provenance": model.provenance},
-        "table_1_seen": _one_table(S_ev, y_ev, seen, q_global, t, args.stat),
+        "table_1_seen": _one_table(S_ev, y_ev, seen, q_global, t, args.stat,
+                                   counts=cnt_full),
     }
     if len(heldout):
-        res["table_2_heldout"] = _one_table(S_ev, y_ev, heldout, q_global, t, args.stat)
+        res["table_2_heldout"] = _one_table(S_ev, y_ev, heldout, q_global, t, args.stat,
+                                            counts=cnt_full)
 
     if args.ccc_root:
         try:
@@ -280,12 +377,20 @@ def run(args) -> dict:
 
 
 def verdict(res: dict, stat: str) -> str:
+    """The verdict may only use a statistic the pre-registration calls measurable on this
+    slice (reports/prereg_metrics_per_dataset.md). Each table carries its own
+    `primary_stat`, so a long-tail dataset is judged on prevalence bins rather than on a
+    per-class minimum that is pure sampling noise there."""
     t2 = res.get("table_2_heldout")
     t1 = res["table_1_seen"]
     if t2 is None:
         return "TIDAK DAPAT DINILAI (tidak ada kelas held-out)"
-    won_2 = t2["delta"][stat] > 0
-    kept_1 = t1["delta"][stat] > -0.01
+    s1 = t1.get("primary_stat", stat)
+    s2 = t2.get("primary_stat", stat)
+    if s1 not in t1["delta"] or s2 not in t2["delta"]:
+        return "TIDAK DAPAT DINILAI (statistik primer tidak terukur di slice ini)"
+    won_2 = t2["delta"][s2] > 0
+    kept_1 = t1["delta"][s1] > -0.01
     if won_2 and kept_1:
         return "LULUS"
     if won_2 and not kept_1:
@@ -345,11 +450,22 @@ def main(argv=None) -> int:
     for tag, tb in (("TABEL 1 kelas terlihat", t1), ("TABEL 2 kelas held-out", t2)):
         if tb is None:
             continue
-        print("  {} ({} kelas, size {:.3f})".format(
-            tag, tb["n_classes"], tb["target_avg_set_size"]))
-        print("    {:6s} global {:+.4f} -> PCC {:+.4f}  delta {:+.4f}{}".format(
-            a.stat, tb["uncorrected"][a.stat], tb["pcc"][a.stat], tb["delta"][a.stat],
-            "" if tb["size_matched"] else "   [UKURAN TIDAK COCOK — jangan dibaca]"))
+        m = tb["measurability"]
+        print("  {} ({} kelas, size {:.3f}) | rezim {} | median eval/kelas {:.0f}".format(
+            tag, tb["n_classes"], tb["target_avg_set_size"], m["regime"],
+            m["median_eval_per_class"]))
+        s = tb["primary_stat"]
+        if s in tb["delta"]:
+            print("    {:10s} global {:+.4f} -> PCC {:+.4f}  delta {:+.4f}{}".format(
+                s, tb["uncorrected"][s], tb["pcc"][s], tb["delta"][s],
+                "" if tb["size_matched"] else "   [UKURAN TIDAK COCOK — jangan dibaca]"))
+        else:
+            print("    {} tidak terukur di slice ini".format(s))
+        print("    macro      global {:+.4f} -> PCC {:+.4f}  delta {:+.4f}".format(
+            tb["uncorrected"]["macro"], tb["pcc"]["macro"], tb["delta"]["macro"]))
+        if "withheld_unmeasurable" in tb:
+            print("    DITAHAN (tak terukur, granularitas {:.2f}): {}".format(
+                m["coverage_granularity"], sorted(tb["withheld_unmeasurable"])))
     print("  VERDICT:", concl)
     print("  laporan:", path)
     if a.print_json:

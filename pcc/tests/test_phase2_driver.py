@@ -117,21 +117,84 @@ def test_unknown_distance_holdout_fails_loudly_with_the_available_names(world):
     assert "not a descriptor of the 'head' family" in str(ei.value)
 
 
+def test_measurability_flags_a_longtail_slice_as_regime_B():
+    """Pl@ntNet's real median is 3 evaluation samples per class and iNat's is 2. With 2
+    samples a class's coverage can only be 0, 0.5 or 1, so `worst` over thousands of such
+    classes is ~0 for any method including an oracle."""
+    y_rich = np.repeat(np.arange(20), 100)
+    m = drv.measurability(y_rich, np.arange(20))
+    assert m["per_class_stats_reportable"] and m["primary_stat"] == "worst"
+    assert m["regime"].startswith("A")
+
+    y_thin = np.repeat(np.arange(500), 3)
+    m2 = drv.measurability(y_thin, np.arange(500))
+    assert not m2["per_class_stats_reportable"]
+    assert m2["primary_stat"] == "bin_worst"
+    assert m2["coverage_granularity"] == pytest.approx(1 / 3, abs=1e-9)
+
+
+def test_measurability_marks_the_borderline_rather_than_hiding_it():
+    y = np.repeat(np.arange(10), 30)
+    m = drv.measurability(y, np.arange(10))
+    assert m["borderline"] and m["per_class_stats_reportable"]
+
+
+def test_prevalence_bins_meet_the_row_minimum_and_merge_a_short_tail():
+    counts = np.arange(1, 41) * 10          # 40 classes, increasing prevalence
+    y = np.repeat(np.arange(40), 30)        # 30 eval rows each -> 1200 total
+    bins = drv.prevalence_bins(y, np.arange(40), counts, min_rows=200)
+    assert sum(len(b) for b in bins) == 40                 # every class placed once
+    assert len({c for b in bins for c in b}) == 40         # and exactly once
+    per = np.bincount(y, minlength=40)
+    rows = [int(per[b].sum()) for b in bins]
+    assert all(r >= 200 for r in rows), rows              # short tail merged backwards
+    # bins follow prevalence order, rarest first
+    assert counts[bins[0]].max() <= counts[bins[-1]].min()
+
+
+def test_regime_B_withholds_per_class_stats_and_judges_on_bins(tmp_path):
+    """A thin slice must produce bin_worst as primary, keep the per-class numbers only
+    under `withheld_unmeasurable`, and never let them decide."""
+    rng = np.random.default_rng(0)
+    K, n_per = 300, 4                        # median 4 eval rows/class after splitting
+    y = np.repeat(np.arange(K), n_per)
+    P = rng.random((len(y), K)).astype(np.float32)
+    P /= P.sum(1, keepdims=True)
+    S = (1 - P).astype(np.float32)
+    q = float(np.quantile(S[np.arange(len(y)), y], 0.9))
+    t = np.full(K, q)
+    counts = np.arange(1, K + 1) * 7
+
+    tb = drv._one_table(S, y, np.arange(K), q, t, "worst", counts=counts)
+    assert tb["primary_stat"] == "bin_worst"
+    assert "withheld_unmeasurable" in tb
+    assert set(tb["withheld_unmeasurable"]) <= set(drv.PER_CLASS_STATS)
+    assert "bin_worst" in tb["delta"]
+    assert tb["bins"]["n_bins"] >= 1
+    assert sum(tb["bins"]["classes_per_bin"]) == K
+
+
+def test_verdict_uses_each_tables_own_primary_stat():
+    res = {"table_1_seen": {"delta": {"bin_worst": 0.0}, "primary_stat": "bin_worst"},
+           "table_2_heldout": {"delta": {"bin_worst": 0.03}, "primary_stat": "bin_worst"}}
+    assert drv.verdict(res, "worst") == "LULUS"
+
+    # a primary stat that is not present must not be silently swapped for another
+    bad = {"table_1_seen": {"delta": {"macro": 0.1}, "primary_stat": "bin_worst"},
+           "table_2_heldout": {"delta": {"macro": 0.1}, "primary_stat": "bin_worst"}}
+    assert "TIDAK DAPAT DINILAI" in drv.verdict(bad, "worst")
+
+
 def test_verdict_distinguishes_a_trade_from_a_win():
-    base = {"table_1_seen": {"delta": {"worst": 0.0}},
-            "table_2_heldout": {"delta": {"worst": 0.05}}}
-    assert drv.verdict(base, "worst") == "LULUS"
+    def _r(d1, d2):
+        return {"table_1_seen": {"delta": {"worst": d1}, "primary_stat": "worst"},
+                "table_2_heldout": {"delta": {"worst": d2}, "primary_stat": "worst"}}
 
-    trade = {"table_1_seen": {"delta": {"worst": -0.20}},
-             "table_2_heldout": {"delta": {"worst": 0.05}}}
-    assert "MENUKAR" in drv.verdict(trade, "worst")
-
-    lose = {"table_1_seen": {"delta": {"worst": 0.0}},
-            "table_2_heldout": {"delta": {"worst": -0.05}}}
-    assert drv.verdict(lose, "worst") == "GAGAL"
-
+    assert drv.verdict(_r(0.0, 0.05), "worst") == "LULUS"
+    assert "MENUKAR" in drv.verdict(_r(-0.20, 0.05), "worst")
+    assert drv.verdict(_r(0.0, -0.05), "worst") == "GAGAL"
     assert "TIDAK DAPAT DINILAI" in drv.verdict(
-        {"table_1_seen": {"delta": {"worst": 0.0}}}, "worst")
+        {"table_1_seen": {"delta": {"worst": 0.0}, "primary_stat": "worst"}}, "worst")
 
 
 def test_cli_writes_a_report_with_preregistered_criteria(world, capsys):
