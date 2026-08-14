@@ -345,6 +345,40 @@ def test_fit_pcc_reports_both_rules_and_defaults_to_the_objective():
                 train_classes=tr, seed=0, n_star_rule="nonsense")
 
 
+def test_lambda_selection_stat_downgrades_on_a_thin_fit_slice():
+    """The error this fixes was real and cost a whole run.
+
+    lambda was selected by worst-class coverage on the CAL slice. On Pl@ntNet and iNat
+    that slice has a handful of rows per class, so a minimum over hundreds of classes
+    whose coverage can only be 0 or 1 is unmovable -- no lambda could improve it, lambda
+    collapsed to 0 on both datasets, delta_hat never entered the thresholds, and the head
+    family was never actually exercised there. Head and output produced byte-identical
+    results, which is how it surfaced.
+    """
+    # thick slice -> keep the requested statistic
+    Phi, names, S, y, K = _world(K=40, n_per=120, seed=21)
+    alpha = 0.1
+    qg = float(np.quantile(S[np.arange(len(y)), y], 1 - alpha))
+    d = _delta_obs(S, y, K, alpha, qg)
+    n_per_class = np.bincount(y, minlength=K)
+    tr = np.arange(0, K, 2)
+    thick = fit_pcc(Phi, names, d, n_per_class, qg, alpha, score_matrix_fit=S,
+                    labels_fit=y, train_classes=tr, seed=0)
+    assert thick.provenance["lambda_selection_stat"] == "worst"
+    assert thick.provenance["lambda_selection_stat_downgraded"] is False
+
+    # thin slice -> downgrade to a lower-tail quantile, and SAY SO
+    Phi2, names2, S2, y2, K2 = _world(K=40, n_per=8, seed=22)
+    qg2 = float(np.quantile(S2[np.arange(len(y2)), y2], 1 - alpha))
+    d2 = _delta_obs(S2, y2, K2, alpha, qg2)
+    n2 = np.bincount(y2, minlength=K2)
+    thin = fit_pcc(Phi2, names2, d2, n2, qg2, alpha, score_matrix_fit=S2, labels_fit=y2,
+                   train_classes=tr, seed=0)
+    assert thin.provenance["lambda_selection_stat"] == "p25"
+    assert thin.provenance["lambda_selection_stat_downgraded"] is True
+    assert thin.lambda_selection["median_fit_rows_per_train_class"] < 30
+
+
 def test_lambda_and_offset_are_blind_to_heldout_class_SCORES():
     """The leak this catches was real and was in the first version of `fit_pcc`.
 

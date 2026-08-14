@@ -63,7 +63,14 @@ from pcc.eval.predictability import ridge_fit, ridge_predict
 from pcc.eval.setsize import (avg_set_size_at_shift, corrected_thresholds,
                               equity_at_matched_size, select_shrinkage)
 
+# Below this many rows per class on the FIT slice, a per-class MINIMUM is noise rather
+# than signal, so lambda is selected on a lower-tail quantile (p25) instead. Same
+# threshold as reports/prereg_metrics_per_dataset.md uses for reporting, applied to
+# selection -- see `fit_pcc` for why not applying it there was a real error.
+SELECT_MIN_ROWS_PER_CLASS = 30
+
 __all__ = [
+    "SELECT_MIN_ROWS_PER_CLASS",
     "GTheta",
     "PCCModel",
     "fit_gtheta",
@@ -462,8 +469,24 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
         np.asarray(score_matrix_fit), np.asarray(labels_fit, int), tr)
     if target_size is None:
         target_size = avg_set_size_at_shift(S_tr, np.full(K_tr, float(q_global)), 0.0)
+
+    # The SELECTION statistic must be measurable on the slice it is selected on. This was
+    # a real design error, found on the 2026-08-13 long-tail run: lambda was chosen by
+    # worst-class coverage on the CAL slice, where Pl@ntNet has a handful of rows per
+    # class and iNat about two. A minimum over hundreds of classes whose coverage can only
+    # be 0 or 1 is unmovable noise, so NO lambda could ever improve it and lambda
+    # collapsed to 0 on both datasets -- which meant delta_hat never entered the
+    # thresholds at all and the head family was never actually exercised there.
+    # `prereg_metrics_per_dataset.md` already fixed this rule for REPORTING; it applies
+    # with equal force to SELECTION, and not applying it there was the oversight.
+    rows_per_train_class = np.bincount(y_tr, minlength=K_tr)
+    med_fit = float(np.median(rows_per_train_class)) if K_tr else 0.0
+    sel_stat = stat if med_fit >= SELECT_MIN_ROWS_PER_CLASS else "p25"
     lam_sel = select_shrinkage(S_tr, y_tr, K_tr, q_global, d_safe[ids_tr],
-                               float(target_size), stat=stat)
+                               float(target_size), stat=sel_stat)
+    lam_sel["selection_stat"] = sel_stat
+    lam_sel["median_fit_rows_per_train_class"] = med_fit
+    lam_sel["selection_stat_downgraded"] = bool(sel_stat != stat)
 
     if n_star_rule == "oos":
         ns_sel = select_n_star_oos(score_matrix_fit, labels_fit, tr, alpha, q_global,
@@ -505,6 +528,8 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
             "target_size_for_lambda": float(target_size),
             "everything_fit_on": "FIT slice + TRAIN label space only",
             "lambda_selected_on": "TRAIN label space only (restrict_to_classes)",
+            "lambda_selection_stat": sel_stat,
+            "lambda_selection_stat_downgraded": bool(sel_stat != stat),
             "marginal_offset_recalibrated": bool(recalibrate),
             "marginal_offset_fit_on": "TRAIN-class rows only",
             "claims": ("marginal coverage over the SEEN-class distribution by "
