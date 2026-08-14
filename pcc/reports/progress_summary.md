@@ -423,6 +423,11 @@ lihat §8.2.
 
 ## 6. Phase 1 — gate A, B, C
 
+> **Angka di bagian ini Pl@ntNet (2026-08-06) dan SUDAH DIGANTIKAN.** Gate A 0,754 → **0,829**,
+> plafon gabungan 0,607 → **0,770**, dan gate B/C yang di sini "lulus ber-cakupan" **LULUS penuh** di
+> ImageNet. Untuk slide, pakai **§10**. Yang tetap berlaku dari bagian ini adalah **rancangan**
+> tiap gerbang dan alasannya — itu tidak berubah.
+
 ### 6.1 Gate A — reliabilitas δ_y, dan mengapa ia adalah PLAFON
 
 **Yang ditanyakan.** Sebelum menanyakan "apakah δ_y bisa diprediksi", harus dipastikan **δ_y itu
@@ -652,6 +657,12 @@ paling ringkas.
 
 ## 7. §6.4 — apakah koreksi terprediksi itu membeli sesuatu?
 
+> **Angka di bagian ini Pl@ntNet (+0,0748, 19% plafon oracle) dan SUDAH DIGANTIKAN.** Di ImageNet:
+> **+0,1173** (76% oracle) untuk φ ruang-output dan **+0,0643** (42% oracle) untuk φ kepala — lihat
+> **§11**. Uji outcome yang sesungguhnya kini Tabel 2 Phase 2 (**§13**), yang mengukur kelas dengan
+> `n_y = 0` betulan, bukan simulasi belahan kelas. Rancangan dan alasan Amandemen 8 di bagian ini
+> tetap berlaku.
+
 ### 7.1 Mengapa gate B/C saja tidak cukup
 
 δ_y hanyalah **proksi**. Yang sebenarnya dipedulikan adalah coverage dan ukuran set, dan relasi
@@ -879,27 +890,45 @@ dry-run seluruh jalur notebook pada data sintetik berbentuk-Pl@ntNet sebelum dis
 
 ---
 
-## 9. Batasan — nyatakan sebelum ditanya
+## 9. Batasan Pl@ntNet (2026-08-06) — EMPAT SUDAH TIDAK BERLAKU
 
-1. **Satu dataset.** Semuanya di Pl@ntNet-300K. CIFAR-100 hanya untuk debug pipeline (akurasi 0,826,
-   backbone latih-sendiri) dan tidak pernah jadi verdict. iNaturalist-2018 dan ImageNet belum
+> **JANGAN salin bagian ini apa adanya ke slide limitasi.** Ditulis saat hanya Pl@ntNet yang
+> pernah dijalankan. Empat dari tujuh butirnya sudah tidak benar. **Daftar batasan yang berlaku
+> sekarang ada di §14**, dan itu yang harus dipakai.
+
+| # | Batasan asli | Status hari ini |
+|---|---|---|
+| 1 | Satu dataset; iNat & ImageNet belum dijalankan | **TIDAK BERLAKU** — ketiganya sudah dijalankan |
+| 2 | Satu α (0,10) saja | **TIDAK BERLAKU** — multi-α disapu; α=0,05 justru jadi batas *hasil*, bukan sampel |
+| 3 | §3.3 tidak terpenuhi (stabilitas puncak 0,815) | **TIDAK BERLAKU di ImageNet** — 8/15 fitur ≥ 0,90; masih berlaku untuk Pl@ntNet |
+| 4 | Skor bukan skor rilis LTC (pengecualian tertulis) | **masih berlaku** untuk jalur Pl@ntNet latih-sendiri; run ImageNet & Phase 2 memakai **dump rilis** apa adanya |
+| 5 | Subset kelas terseleksi-prevalensi | **TIDAK BERLAKU di ImageNet** — 1.000/1.000 kelas layak, tanpa seleksi |
+| 6 | Set 15-fitur tidak terpakai; φ perlu dirancang ulang | **masih berlaku, dan sudah ditindaklanjuti** — keluarga kedua (bobot kepala) dirancang, bukan ditambah |
+| 7 | Gate B/C bertingkat kurang daya (19 kelas/stratum) | **masih berlaku** untuk Pl@ntNet; tidak relevan di ImageNet |
+
+**Isi asli tiap butir tetap di bawah** sebagai catatan bagaimana keadaannya saat itu — bukan sebagai
+klaim tentang keadaan sekarang.
+
+1. ~~**Satu dataset.**~~ Semuanya di Pl@ntNet-300K. CIFAR-100 hanya untuk debug pipeline (akurasi
+   0,826, backbone latih-sendiri) dan tidak pernah jadi verdict. iNaturalist-2018 dan ImageNet belum
    dijalankan.
 
-2. **Satu α untuk Phase 1.** Hanya α=0,10. Kuantil classwise butuh
+2. ~~**Satu α untuk Phase 1.**~~ Hanya α=0,10. Kuantil classwise butuh
    `⌈(n+1)(1−α)⌉/n ≤ 1`; pada Pl@ntNet, α=0,05 butuh ≥19 sampel/kelas (hanya 187 kelas) dan α=0,01
    butuh ≥99 (hanya 57 kelas). Ini **batas jumlah sampel, bukan hasil** — dan alasan §6.2
    mengharuskan kepala versus ekor dilaporkan terpisah, bukan di-pool.
 
-3. **§3.3 TIDAK terpenuhi.** Stabilitas deskriptor puncaknya 0,815 (<0,90), dan kuartil ekor datar
-   di ~0,68 karena kelas-kelas itu hanya punya 2–7 citra — **tidak bisa diperbaiki kuota**; menaikkan
-   kuota justru **memperlebar** selisih kepala–ekor. Konsekuensinya asimetris dan sudah disetujui:
-   **gate-B LULUS bermakna; gate-B GAGAL AMBIGU.**
+3. ~~**§3.3 TIDAK terpenuhi.**~~ Stabilitas deskriptor puncaknya 0,815 (<0,90), dan kuartil ekor
+   datar di ~0,68 karena kelas-kelas itu hanya punya 2–7 citra — **tidak bisa diperbaiki kuota**;
+   menaikkan kuota justru **memperlebar** selisih kepala–ekor. Konsekuensinya asimetris dan sudah
+   disetujui: **gate-B LULUS bermakna; gate-B GAGAL AMBIGU.**
 
 4. **Skor bukan skor rilis LTC.** Gate reproduksi checkpoint gagal permanen; berjalan di bawah
    pengecualian tertulis (§4.5). Perbandingan bit-level dengan tabel terbit LTC **tidak diklaim**.
 
-5. **Subset kelas terseleksi-prevalensi.** Gate A/B/C dihitung pada kelas yang punya cukup sampel
-   untuk matched-n, jadi subsetnya bias ke kepala **secara desain**. Ini disebut di setiap laporan.
+5. ~~**Subset kelas terseleksi-prevalensi.**~~ Gate A/B/C dihitung pada kelas yang punya cukup
+   sampel untuk matched-n, jadi subsetnya bias ke kepala **secara desain**. Ini disebut di setiap
+   laporan.
 
 6. **Set 15-fitur tidak terpakai** pada jumlah kelas ini. φ(y) perlu **dirancang ulang, bukan
    diperbanyak**.
