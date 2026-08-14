@@ -1,11 +1,51 @@
 # Predicted Class Correction (PCC) — Ringkasan Progres Riset
 
-**Tanggal:** 2026-08-06 · **Dataset:** Pl@ntNet-300K (1.081 kelas) · **Backbone:** ResNet-50 (LTC)
-**Status:** Phase 0 LULUS · Gate A LULUS · Gate B/C lulus ber-cakupan · §6.4 LULUS · Phase 2 menunggu keputusan
-**Amandemen protokol:** 8 · **Tes regresi:** 51 lolos
+**Diperbarui:** 2026-08-14 · **Dataset:** ImageNet-1k (CCC) · Pl@ntNet-300K · iNat-2018 (LTC)
+**Status:** Phase 0 LULUS · Phase 1 LULUS di ImageNet (4 gerbang) · **Phase 2 LULUS di ImageNet + φ kepala**
+**Amandemen protokol:** 11 · **Tes regresi:** 101 lolos · **Metode `g_θ`: sudah ada**
 
 Dokumen ini menjelaskan **apa yang diukur setiap gerbang, bagaimana cara mengukurnya, dan mengapa
 dirancang begitu** — bukan hanya angka hasilnya. Angka tanpa prosedurnya tidak bisa direview.
+
+> **BACA INI DULU — §1–§9 ditulis 2026-08-06 dan berbasis Pl@ntNet.** Sejak itu banyak yang
+> berubah: gerbangnya dijalankan ulang di **ImageNet** (1.000 kelas, 1,15 juta baris), keluarga
+> deskriptor **kedua** ditambahkan, metodenya dibangun, dan Phase 2 dijalankan. Bagian **§10–§14**
+> memuat keadaan terkini dan **menggantikan** angka Pl@ntNet di bagian awal. Kalau membuat slide,
+> ambil dari §10 ke bawah.
+
+---
+
+## 0. Ringkasan eksekutif — untuk slide
+
+**Pertanyaannya:** bisakah koreksi konformal per-kelas δ_y **diekstrapolasi** ke kelas yang punya
+**nol** sampel kalibrasi, dari deskriptor geometrik φ(y)? Itu satu-satunya klaim yang memisahkan ini
+dari Clustered CP, Fuzzy Classwise CP, RC3P, dan sejenisnya — mereka semua **mengestimasi** δ_y dari
+sampel kelas itu sendiri.
+
+**Jawaban sejauh ini: ya, di ImageNet, dengan deskriptor yang eksogen.**
+
+| Klaim | Status | Bukti |
+|---|---|---|
+| δ_y punya struktur di tingkat kelas | **tertegakkan** | Phase 0, divalidasi 4/4 di dunia tertanam |
+| δ_y **terprediksi** dari geometri kelas | **tertegakkan** | gate B/C, 1.000 kelas, **dua** keluarga φ |
+| bukan sekadar prevalensi atau jarak | **tertegakkan** | gate C, p ≤ 0,001, 73σ–102σ |
+| koreksinya **membeli ekuitas** di kelas `n_y = 0` | **tertegakkan** | Tabel 2 **+0,0249** [+0,0054, +0,0444] |
+| tidak dibayar oleh kelas ber-data | **tertegakkan** | Tabel 1 **+0,0495** [+0,0059, +0,0930] |
+| berlaku di dataset ekor-panjang | **belum** | λ=0 — sebab teridentifikasi, sudah diperbaiki |
+| mengalahkan Clustered CP pada ukuran tercocokkan | **belum diuji** | baseline belum masuk tabel |
+| berlaku lintas α | **tidak** pada α=0,05 | batas cakupan, dinyatakan |
+
+**Tiga temuan yang berdiri sendiri sebagai kontribusi**, terlepas dari nasib metodenya:
+
+1. **R² adalah mata uang yang salah untuk memilih deskriptor.** Keluarga dengan R² **lebih tinggi**
+   (0,4975) ternyata bernilai **nol** di tingkat metode; keluarga dengan R² lebih rendah (0,3880)
+   yang bekerja. Objektif worst-class dikuasai galat **ekor**, bukan galat kuadrat rata-rata.
+2. **Keunggulan classwise CP sebagian dibeli dengan ukuran set.** Tampak jauh lebih baik
+   (`max_gap` 0,173 vs 0,420) — tetapi dengan set 4,10 vs 1,91. Pada ukuran tercocokkan ia bisa
+   **berbalik negatif** (−0,51 pada satu seed).
+3. **Dataset ekor-panjang tidak bisa menopang uji prediktabilitas tingkat-kelas yang berdaya.**
+   Kelas yang layak: ImageNet 1.000, Pl@ntNet 90, iNat-2018 63. Prior art memakai dataset kedua dan
+   ketiga itu.
 
 ---
 
@@ -870,47 +910,197 @@ dry-run seluruh jalur notebook pada data sintetik berbentuk-Pl@ntNet sebelum dis
 
 ---
 
-## 10. Status dan langkah berikutnya
+## 10. Phase 1 dijalankan ulang di ImageNet — keempat gerbang LULUS
 
-| Komponen | Status | Catatan |
+Pl@ntNet gagal gate B/C, dan diagnosisnya **daya uji**, bukan ketiadaan sinyal. Konsekuensinya
+ditetapkan **sebelum** dijalankan: kalau dataset dengan kelas layak jauh lebih banyak lolos, itu
+mengonfirmasi diagnosis daya uji.
+
+**Dump:** CCC ImageNet, `(1.153.051 × 1.000)` — sepuluh kali lebih besar dari yang tercatat di audit.
+Subsample terstratifikasi 21,7% (fraksi per kelas, bukan cap tetap, supaya struktur prevalensi utuh).
+Split DESC 40% / CAL 30% / EVAL 30%, terverifikasi terpisah.
+
+| Gerbang | Yang diukur | Hasil | Verdict |
+|---|---|---|---|
+| **A** | reliabilitas δ_y (split-half + Spearman-Brown) | **0,829** [0,827, 0,831], 1.000 kelas | LULUS |
+| **B** | R² held-out, bootstrap tingkat-**kelas** | **+0,4975** [+0,461, +0,534]; ter-normalisasi **0,600** | LULUS |
+| **C** | permutasi tingkat-kelas vs prevalensi & jarak, Holm | p ≤ 0,001 (**102σ** dan **84σ**) | LULUS |
+| **§6.4** | apakah δ̂ membeli ekuitas pada ukuran tercocokkan | **+0,1173**, 76% plafon oracle, λ=0,088 | LULUS |
+
+**Plafon:** `r_δ` 0,829 × `r_φ` 0,929 = **0,770**. §3.3 akhirnya terpenuhi: 8 dari 15 fitur berstabilitas ≥ 0,90, lawan 2 dari 15 di Pl@ntNet.
+
+**Konsekuensi pra-registrasi terpenuhi:** kegagalan Pl@ntNet **terkonfirmasi sebagai masalah daya
+uji**, bukan ketiadaan sinyal.
+
+---
+
+## 11. Dua keluarga deskriptor — dan mengapa yang kedua yang menentukan
+
+Hasil di atas memakai φ **ruang-output**: dihitung dari matriks skor. Masalahnya **struktural**, dan
+terukur: δ_y **juga** diturunkan dari matriks skor model yang sama. `conf_mean` pada DESC dan `q_y`
+pada CAL adalah dua estimasi distribusi skor kelas yang **sama**. Baseline jarak sendirian
+menjelaskan ~0,155 dari R² 0,497 — sisanya ringkasan skor langsung.
+
+Jadi gate B di sana lebih dekat ke **estimasi distribusional** daripada **ekstrapolasi geometrik**.
+
+**Keluarga kedua mematahkan sirkularitas itu:** baris bobot kepala klasifier `w_y`.
+
+| | ruang-output | **kepala `w_y`** |
 |---|---|---|
-| Ekstraksi Pl@ntNet (cal/test/train_quota) | Selesai | manifest ber-checksum, resumable |
-| Gate reproduksi checkpoint | FAIL, pengecualian tertulis | permanen, tercatat |
-| Phase 0 | **LULUS** | metrik divalidasi 4/4 lebih dulu |
-| Gate A | **LULUS** | 0,754 atas 453 kelas |
-| Gate B/C | **Lulus ber-cakupan** | lulus di ≲70 sampel/kelas |
-| §6.4 | **LULUS** | +0,0748, 19% plafon oracle |
-| Keputusan Phase 1 | **Menunggu manusia** | §10 memblokir sisanya |
-| `pcc/method/` — g_θ | **Belum ada satu baris** | kontribusi intinya |
-| Baseline Tier-1 (APS, RAPS, SAPS, classwise CP) | Stub | bisa diselesaikan |
-| Baseline Tier-2 (9 metode) | **0 dari 9** | bottleneck dominan; masing-masing perlu reproduksi vs angka terbit |
-| §8.5 paired bootstrap, §8.6 Holm–Bonferroni | Terimplementasi, belum dipakai | untuk tabel final |
-| Dataset kedua (iNat / ImageNet) | Belum | validitas eksternal |
-| Phase 3 / 4 | Belum | |
+| sumber | matriks skor | matriks bobot |
+| derau sampling | ada | **nol — eksak secara konstruksi** |
+| butuh sampel berlabel? | ya | **tidak** |
+| butuh citra / GPU? | tidak | tidak |
+| model asalnya | **sama** dengan skor | **berbeda** (ResNet-50 torchvision vs SimCLRv2+probe) |
 
-### Jalur terpendek yang masih bisa dipertahankan
+| Uji | ruang-output | kepala |
+|---|---|---|
+| gate B R² | +0,4975 | **+0,3880** [+0,345, +0,439] |
+| gate C jarak | +0,3426 (84σ) | **+0,3753** (83σ) |
+| gate C prevalensi | +0,4902 (102σ) | **+0,3710** (73σ) |
+| §6.4 | +0,1173 (76% oracle) | **+0,0643** (42% oracle) |
 
-1. **Putuskan Phase 1 sebagai lulus ber-cakupan**, dicatat dengan alasannya — pola yang sama seperti
-   pengecualian gate checkpoint, terlihat jelas bagi reviewer.
-2. **Bangun `pcc/method/` dan Phase 2 di Pl@ntNet**, dengan aturan ambang-data (§6.7) sebagai bagian
-   dari metodenya.
-3. **Selesaikan baseline Tier-1 dengan benar; perlakukan Tier-2 sebagai "dibahas, tidak
-   direproduksi"** dengan justifikasi eksplisit. Mengklaim reproduksi 9 metode tanpa mereproduksinya
-   jauh lebih berbahaya bagi kredibilitas paper daripada mengakui batasnya.
-4. **Satu dataset kedua** untuk validitas eksternal.
+**Struktur internalnya berkebalikan, dan itu poinnya.** Di ruang-output, satu fitur jarak
+(`prof_knn_1`) menjelaskan 0,155 dari 0,497. Di keluarga kepala, `w_cos_knn_1` sendirian hanya
+**0,013** dari 0,388 — jadi prediktabilitasnya datang dari geometri keputusan multi-fitur yang asli,
+bukan dari satu jarak atau ringkasan skor.
 
-### Penilaian jujur atas posisi risetnya
+**Implikasi terkuat:** geometri model yang **berbeda** memprediksi threshold model ini. Berarti
+strukturnya properti **ruang label** (kebingungan visual antar kelas), bukan properti satu jaringan.
 
-**Tulang punggungnya kokoh.** Struktur memang di tingkat kelas, dua hipotesis alternatif utama
-terbantah (bukan hanya terkalahkan), δ_y adalah sinyal reliabel, dan koreksi terprediksi terbukti
-memperbaiki worst-class coverage pada kelas yang δ_y-nya tak pernah diukur.
+---
 
-**Risikonya sudah pindah dari sains ke pekerjaan.** Dua yang tersisa:
+## 12. Baseline pada skor yang SAMA
 
-- **Kebaruan** harus bertahan di dataset kedua. Kalau keunggulan geometri atas prevalensi dan jarak
-  hilang di sana, ini bertetangga dengan Clustered CP dan framing "ekstrapolasi" tidak menanggung
-  kebaruannya.
-- **Kualitas deskriptor** adalah kendala pengikat, bukan konsepnya: R² 0,303 dari plafon 0,607, dan
-  §6.4 menyerap 19% dari ruang yang tersedia.
+Dipanggil dengan **kode penulisnya sendiri** (`utils/conformal_utils.py`, repo Clustered CP), bukan
+reimplementasi. Grid Tier-1 (fungsi skor) × Tier-2 (metode kelas), α = 0,10, ImageNet:
 
-Keduanya pekerjaan, bukan pertanyaan terbuka.
+| skor | metode | mean gap | **max gap** | avg set size |
+|---|---|---|---|---|
+| THR | standard | 0,0580 | **0,420** | **1,911** |
+| THR | classwise | **0,0367** | 0,173 | 4,101 |
+| THR | **clustered** | 0,0380 | 0,233 | **2,568** |
+| APS | clustered | 0,0348 | 0,147 | 29,10 |
+| RAPS | clustered | 0,0363 | 0,167 | 5,391 |
+
+**Tiga bacaan:**
+
+1. **Clustered CP mereproduksi klaim sentralnya** — gap nyaris setara classwise di **63% ukuran
+   set**-nya. Ia bukan strawman, dan itulah baris yang harus dilampaui.
+2. **Fungsi skor mendominasi sumbu ukuran set** — set APS **10–13× lebih besar** dari THR untuk gap
+   praktis sama. Perbandingan wajib menahan fungsi skor tetap.
+3. **Kolom yang sebanding dengan objektif kita `max gap`, bukan `mean gap`.**
+
+**Target PCC dipatok SEBELUM `g_θ` ditulis** (`baseline_reproduction.md`): Tabel 1 harus
+`max_gap ≤ 0,233` pada `size ≤ 2,568`; Tabel 2 harus mengalahkan `THR|standard` pada ukuran
+tercocokkan. Dan peringatan strawman dinyatakan di muka: **menang di Tabel 2 saja bukan lulus**,
+karena di sana setiap pesaing memang tak terdefinisi.
+
+**§7 belum terpenuhi:** angka ini sahih untuk perbandingan **internal**, belum sebagai klaim
+reproduksi (subsample 21,7%, protokol split berbeda, α/n_cal dipilih untuk gerbang).
+
+---
+
+## 13. Phase 2 — metode dijalankan
+
+`pcc/method/pcc.py`: `g_θ` (ridge φ → δ̂ pada kelas TRAIN saja), aturan ambang data §6.7, blending,
+rekalibrasi marginal. `pcc/experiments/phase2_pcc.py` sebagai driver ber-`--seed`; notebook 06 runner
+tipis. **44 konfigurasi**, 3 dataset × 2 keluarga φ × 2 α × n_cal × 5 seed, ~69 menit, tanpa GPU.
+
+**Yang diklaim metodenya, dan yang TIDAK.** Pada `n_y = 0` tidak ada sampel kelas untuk diambil
+kuantilnya, jadi **tidak ada metode** yang bisa punya jaminan class-conditional finite-sample di
+sana. PCC mengklaim tepat dua hal: **coverage marginal by construction** (atas distribusi
+kelas-terlihat), dan **ekuitas kelas empiris membaik pada ukuran tercocokkan**. Tidak lebih.
+
+### Hasil
+
+| konfigurasi | λ | **Tabel 2 (`n_y=0`)** | Tabel 1 (terlihat) | verdict |
+|---|---|---|---|---|
+| **ImageNet + kepala** | 0,080 | **+0,0249** [+0,0054, +0,0444] | **+0,0495** [+0,0059, +0,0930] | **LULUS** |
+| ImageNet + ruang-output | 0,000 | +0,0000 | −0,1026 | GAGAL |
+| Pl@ntNet (kedua keluarga) | 0,000 | +0,0000 | +0,0050 | GAGAL |
+| iNat-2018 (kedua keluarga) | 0,000 | +0,0000 | +0,0000 | GAGAL |
+
+Ukuran set tercocokkan di 5/5 seed untuk baris yang lolos.
+
+**Harganya, dilaporkan bukan disembunyikan:** macro coverage **turun** di kedua tabel (−0,0041 dan
+−0,0036, CI tidak memuat nol). Pada ukuran tercocokkan, mengangkat kelas terburuk berarti
+**memindahkan** anggaran dari kelas lain. Itu redistribusi — perilaku yang diharapkan dari metode
+ekuitas, tetapi wajib ditulis sebagai trade-off.
+
+### Mengapa yang lain λ = 0
+
+λ = 0 berarti pemilihan λ **menolak koreksinya seluruhnya**. Metodenya menahan diri, dan itu
+perilaku yang benar — tetapi sebabnya berbeda di dua tempat:
+
+- **ImageNet + ruang-output:** δ̂-nya memang tidak berguna untuk objektif worst-class, meski R²-nya
+  tertinggi. Inilah temuan pembalikan R² di §0.
+- **Pl@ntNet dan iNat:** ini **kesalahan desainku**, bukan sifat data. λ dipilih lewat coverage
+  worst-class pada slice CAL, dan di sana Pl@ntNet punya segelintir baris per kelas, iNat sekitar
+  dua. Minimum atas ratusan kelas yang coverage-nya hanya bisa 0 atau 1 **tidak bisa digerakkan**,
+  jadi tidak ada λ yang bisa memperbaikinya.
+
+  Terbukti begitu: baris `head` dan `output` di kedua dataset itu menghasilkan angka **identik
+  sampai 16 digit**. Dengan λ=0, ambangnya hanya bergantung δ_obs dan n_star — keduanya tidak
+  bergantung φ. **Jadi keluarga kepala tidak pernah benar-benar diuji di ekor panjang; ia ditolak
+  sebelum sempat dipakai.**
+
+  `prereg_metrics_per_dataset.md` sudah menetapkan aturannya untuk **pelaporan**: di bawah 30 baris
+  per kelas, minimum per-kelas adalah derau. Aturan itu berlaku sama kuat untuk **pemilihan**, dan
+  tidak menerapkannya di sana adalah kelalaian. Sudah diperbaiki: λ kini dipilih pada kuantil
+  ekor-bawah (p25) bila slice-nya terlalu tipis, dan statistik yang dipakai dicatat di tiap laporan.
+
+---
+
+## 14. Status, batas, dan langkah berikutnya
+
+### Yang sudah jadi
+
+| Komponen | Status |
+|---|---|
+| Phase 0 | **LULUS** (metrik divalidasi 4/4 lebih dulu) |
+| Phase 1 — gate A/B/C + §6.4 | **LULUS di ImageNet**, dua keluarga φ |
+| `pcc/method/` — g_θ, §6.7, prediktor | **selesai**, 13 tes |
+| `pcc/experiments/` — driver ber-`--seed` | **selesai**, bit-per-bit reproducible |
+| Notebook 06 — runner grid | **selesai**, 44 konfigurasi berjalan |
+| Baseline standard / classwise / Clustered / APS / RAPS | **dipanggil**, 9 kombinasi |
+| Pra-registrasi metrik per dataset | **selesai**, ditegakkan kode |
+| Tes regresi | **101 lolos** |
+
+### Yang belum
+
+| Item | Catatan |
+|---|---|
+| φ kepala di ekor panjang | ditolak λ=0; perbaikan sudah masuk, **belum dijalankan ulang** |
+| Baseline masuk tabel paper | §7 minta reproduksi vs angka terbit; perlu `MAX_ROWS = None` |
+| Baseline Tier-2 sisanya | Fuzzy Classwise, PAS/Interp-Q, RC3P, TACP, CFCP — §7 sebut dua pertama **paling berbahaya** |
+| α = 0,05 | GAGAL untuk φ kepala; hasil yang lolos spesifik α = 0,10 |
+| iNat ukuran set | tidak cocok pada 1 dari 5 seed; angka seed itu tidak boleh dibaca |
+| Perbedaan nb05 §6.4 vs nb06 | λ dipilih di slice EVAL vs CAL; harus **diputuskan**, bukan dipilih yang angkanya bagus |
+
+### Batas yang harus dinyatakan, bukan ditunggu ditanya
+
+1. **ImageNet berimbang.** Klaim aplikasi ekor-panjang belum tertegakkan di tempat motivasinya
+   hidup.
+2. **Ketidakcocokan model** (geometri ResNet-50 memprediksi threshold SimCLR+probe) adalah klaim
+   substantif tentang ruang label, dan harus diargumentasikan sebagai klaim.
+3. **42%, bukan 76%.** Deskriptor eksogen membeli **lebih sedikit** daripada deskriptor sirkular.
+   Kedua angka harus muncul berdampingan.
+4. **Tanpa penyusutan, metode ini merusak.** δ̂ mentah pada λ=1 memberi −0,508 (kepala) dan −0,234
+   (ruang-output). Aturan pemilihan λ adalah **bagian metode**, bukan detail implementasi.
+5. **Jaminan marginalnya atas distribusi kelas-terlihat**, bukan populasi penuh — kelas dengan
+   `n_y = 0` tidak menyumbang baris kalibrasi apa pun.
+
+### Penilaian jujur
+
+**Tulang punggungnya sekarang lengkap dan terukur, bukan lagi diperdebatkan.** Ketiga mata rantai —
+δ_y terprediksi, bukan dari prediktor trivial, dan koreksinya membeli ekuitas pada kelas tanpa data —
+semuanya tertegakkan pada dataset dengan daya uji memadai, memakai deskriptor yang **eksogen**:
+parameter dari model lain, nol sampel berlabel, tanpa citra, tanpa GPU.
+
+**Risiko terbesar yang tersisa satu: apakah ini berpindah ke ekor panjang.** Run terakhir belum
+menjawabnya — ia gagal karena kesalahan desain yang kini sudah diperbaiki, bukan karena datanya
+menolak. Run berikutnya yang menjawab, dan jawabannya bisa saja tetap tidak.
+
+**Yang tidak berisiko lagi:** tiga temuan metodologis di §0 berdiri sendiri sebagai kontribusi,
+apa pun nasib metodenya.
