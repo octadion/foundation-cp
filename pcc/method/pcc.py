@@ -228,6 +228,71 @@ def data_threshold(score_matrix, labels, train_classes, alpha, q_global, gtheta_
             "rule": "use observed delta_y when n_y >= n_star, else lambda * delta_hat"}
 
 
+BIN_MIN_SCORE_ROWS = 200
+
+
+def prevalence_bins(counts, classes, y_score, min_rows=BIN_MIN_SCORE_ROWS):
+    """Classes sorted by prevalence, accumulated until each bin holds `min_rows` scoring
+    rows. Same construction `reports/prereg_metrics_per_dataset.md` fixes for reporting.
+    A short final bin merges backwards so no half-filled bin can dominate the minimum."""
+    cls = np.asarray(classes, int)
+    order = cls[np.argsort(np.asarray(counts, float)[cls], kind="stable")]
+    per = np.bincount(np.asarray(y_score, int), minlength=int(cls.max()) + 1)
+    bins, cur, n = [], [], 0
+    for c in order:
+        cur.append(int(c))
+        n += int(per[c])
+        if n >= min_rows:
+            bins.append(cur)
+            cur, n = [], 0
+    if cur:
+        (bins[-1].extend(cur) if bins else bins.append(cur))
+    return bins
+
+
+def select_shrinkage_binned(score_matrix, labels, n_classes, q_global, delta_hat,
+                            target_size, bins, *,
+                            lams=(0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0)) -> dict:
+    """λ chosen on POOLED prevalence bins instead of any per-class quantile.
+
+    Why this and not p25. The 2026-08-15 Pl@ntNet curve was
+
+        λ: 0.0 -> 0.5,  0.05 -> 0.0,  0.1 -> 0.0,  ...,  1.0 -> 0.0
+
+    a cliff, not a slope. 0.5 and 0.0 are the signature of a class holding TWO
+    calibration rows, where coverage can only be 0, 0.5 or 1: a handful of such classes
+    decide the objective, and any perturbation at all drops one of them to zero. A
+    lower-tail quantile does not escape that — the discreteness reaches through it, which
+    is why the p25 downgrade failed too. Pooling rows into bins is the only move that
+    removes the discreteness rather than stepping around it, and it is the construction
+    the pre-registration already fixed for REPORTING in regime B.
+    """
+    from pcc.eval.setsize import shift_to_size
+
+    S = np.asarray(score_matrix)
+    y = np.asarray(labels, int)
+    d = np.where(np.isfinite(np.asarray(delta_hat, float)), delta_hat, 0.0)
+    base = np.full(int(n_classes), float(q_global))
+    hit_rows = np.arange(len(y))
+    masks = [np.isin(y, np.asarray(b, int)) for b in bins]
+    masks = [m for m in masks if m.any()]
+    if not masks:
+        raise ValueError("no prevalence bin contains any scoring row")
+
+    curve, best_lam, best_val = {}, 0.0, -np.inf
+    for lam in lams:
+        t = base + float(lam) * d
+        t = t + shift_to_size(S, t, target_size)
+        hit = S[hit_rows, y] <= t[y]
+        v = float(min(hit[m].mean() for m in masks))
+        curve[float(lam)] = v
+        if v > best_val:
+            best_lam, best_val = float(lam), v
+    return {"lambda": best_lam, "value": best_val, "curve": curve, "stat": "bin_worst",
+            "n_bins": len(masks),
+            "rows_per_bin_min": int(min(int(m.sum()) for m in masks))}
+
+
 def select_n_star(score_matrix, labels, train_classes, alpha, q_global,
                   delta_obs, delta_hat, n_per_class, lam, *,
                   candidates=(5, 10, 15, 20, 25, 30, 40, 50, 75, 100),
@@ -436,6 +501,7 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
             features: Optional[Sequence[str]] = None,
             ridge_alpha: float = 1.0, target_size: Optional[float] = None,
             stat: str = "worst", n_folds: int = 5, n_star_rule: str = "oos",
+            class_counts: Optional[np.ndarray] = None,
             recalibrate: bool = True, seed: int = 0) -> PCCModel:
     """Fit the whole method on the FIT slice and the TRAIN label space only.
 
@@ -481,9 +547,20 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
     # with equal force to SELECTION, and not applying it there was the oversight.
     rows_per_train_class = np.bincount(y_tr, minlength=K_tr)
     med_fit = float(np.median(rows_per_train_class)) if K_tr else 0.0
-    sel_stat = stat if med_fit >= SELECT_MIN_ROWS_PER_CLASS else "p25"
-    lam_sel = select_shrinkage(S_tr, y_tr, K_tr, q_global, d_safe[ids_tr],
-                               float(target_size), stat=sel_stat)
+    thin = med_fit < SELECT_MIN_ROWS_PER_CLASS
+    sel_stat = stat if not thin else "bin_worst"
+    if thin and class_counts is not None:
+        # Regime B: pool into prevalence bins. A per-class quantile — even p25 — cannot
+        # escape the discreteness of 2-row classes; see `select_shrinkage_binned`.
+        bins_tr = prevalence_bins(np.asarray(class_counts, float)[ids_tr],
+                                  np.arange(K_tr), y_tr)
+        lam_sel = select_shrinkage_binned(S_tr, y_tr, K_tr, q_global, d_safe[ids_tr],
+                                          float(target_size), bins_tr)
+    else:
+        if thin:
+            sel_stat = "p25"      # no prevalence counts supplied; fall back, and say so
+        lam_sel = select_shrinkage(S_tr, y_tr, K_tr, q_global, d_safe[ids_tr],
+                                   float(target_size), stat=sel_stat)
     lam_sel["selection_stat"] = sel_stat
     lam_sel["median_fit_rows_per_train_class"] = med_fit
     lam_sel["selection_stat_downgraded"] = bool(sel_stat != stat)
@@ -535,8 +612,19 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
         # so on a long-tail dump the two interdependent parameters were being chosen by
         # two DIFFERENT objectives. Found by reading the 2026-08-15 curve, which reported
         # stat='worst' for n_star while lambda had already been downgraded to p25.
+        # `bin_worst` has no EQUITY_STATS entry, so n_star cannot yet be scored on bins.
+        # It falls back to the lower-tail per-class quantile, and the mismatch is RECORDED
+        # rather than hidden -- lambda and n_star being chosen on different objectives is
+        # exactly the bug found on 2026-08-15, and it must stay visible until bin-level
+        # n_star exists.
+        ns_stat = "p25" if sel_stat == "bin_worst" else sel_stat
         ns_sel = select_n_star_oos(score_matrix_fit, labels_fit, tr, alpha, q_global,
-                                   d_hat, lam_sel["lambda"], stat=sel_stat, seed=seed)
+                                   d_hat, lam_sel["lambda"], stat=ns_stat, seed=seed)
+        ns_sel["stat_differs_from_lambda"] = bool(ns_stat != sel_stat)
+        if ns_stat != sel_stat:
+            ns_sel["mismatch_note"] = (
+                "lambda was selected on " + sel_stat + " but n_star on " + ns_stat +
+                "; bin-level n_star is not implemented yet.")
     elif n_star_rule == "objective":
         ns_sel = select_n_star(score_matrix_fit, labels_fit, tr, alpha, q_global,
                                delta_obs, d_hat, n_per_class, lam_sel["lambda"],

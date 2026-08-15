@@ -399,9 +399,13 @@ def run(args) -> dict:
                 int(np.median(n_per_class[seen])), int(seen_counts[0]),
                 achievable[0] if achievable else "n/a", min_trainable,
                 achievable[-1] if achievable else "n/a", min(len(seen_counts), 30)))
+    # cnt_full lets fit_pcc build prevalence bins when the fit slice is too thin for any
+    # per-class statistic -- the regime-B rule, now applied to SELECTION and not only to
+    # reporting. Without it fit_pcc falls back to p25 and says so.
     model = fit_pcc(Phi, names, delta_obs, n_per_class, q_global, args.alpha,
                     score_matrix_fit=S_cal, labels_fit=y_cal, train_classes=seen,
-                    features=feats, stat=args.stat, seed=args.seed)
+                    features=feats, stat=args.stat, class_counts=cnt_full,
+                    seed=args.seed)
     t = model.thresholds()
 
     res = {
