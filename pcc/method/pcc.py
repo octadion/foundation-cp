@@ -496,6 +496,40 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
     # which row splitting cannot fix and `gtheta_cv_mse` reports instead.
     lam_sel["scored_on"] = "CAL rows; lambda touches delta_hat only"
 
+    # WHY lambda = 0? Two very different answers, and until 2026-08-15 the output could
+    # not tell them apart -- three long-tail runs reported lambda = 0 with no way to know
+    # which had happened:
+    #
+    #   curve DECREASING -> delta_hat carries signal but HURTS. A real finding about phi.
+    #   curve FLAT       -> delta_hat is degenerate (near-constant across classes), so
+    #                       after size matching it shifts nothing and every lambda scores
+    #                       identically. select_shrinkage then returns the first candidate,
+    #                       which is 0.0, because the comparison is a strict `>`. That is
+    #                       an estimation limit, NOT evidence about phi.
+    #
+    # A near-constant delta_hat is exactly what to expect when g_theta can only be fitted
+    # on the head classes that reach n_cal, and is then extrapolated to a long tail far
+    # outside that range. So the distinction is diagnosed here rather than left to be
+    # guessed from a lost log.
+    _cv = np.array(list(lam_sel["curve"].values()), float)
+    _rng_curve = float(np.nanmax(_cv) - np.nanmin(_cv)) if _cv.size else float("nan")
+    _dh_tr = d_hat[tr][np.isfinite(d_hat[tr])]
+    lam_sel["curve_range"] = _rng_curve
+    lam_sel["sd_delta_hat_train"] = float(np.std(_dh_tr)) if _dh_tr.size else float("nan")
+    lam_sel["sd_delta_obs_train"] = float(
+        np.nanstd(np.asarray(delta_obs, float)[tr])) if len(tr) else float("nan")
+    if lam_sel["lambda"] == 0.0:
+        flat = np.isfinite(_rng_curve) and _rng_curve < 1e-9
+        lam_sel["zero_lambda_reason"] = (
+            "DEGENERATE delta_hat: the lambda curve is flat, so no lambda changes the "
+            "objective and 0.0 is returned by default. This is an estimation limit, not "
+            "evidence that phi carries no signal."
+            if flat else
+            "delta_hat carries signal but every positive lambda scored WORSE than 0 on "
+            "the train label space. This is evidence about phi, not a degeneracy.")
+    else:
+        lam_sel["zero_lambda_reason"] = None
+
     if n_star_rule == "oos":
         ns_sel = select_n_star_oos(score_matrix_fit, labels_fit, tr, alpha, q_global,
                                    d_hat, lam_sel["lambda"], stat=stat, seed=seed)
