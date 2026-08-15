@@ -531,8 +531,12 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
         lam_sel["zero_lambda_reason"] = None
 
     if n_star_rule == "oos":
+        # `sel_stat`, not `stat`: the thin-slice downgrade reached lambda but not n_star,
+        # so on a long-tail dump the two interdependent parameters were being chosen by
+        # two DIFFERENT objectives. Found by reading the 2026-08-15 curve, which reported
+        # stat='worst' for n_star while lambda had already been downgraded to p25.
         ns_sel = select_n_star_oos(score_matrix_fit, labels_fit, tr, alpha, q_global,
-                                   d_hat, lam_sel["lambda"], stat=stat, seed=seed)
+                                   d_hat, lam_sel["lambda"], stat=sel_stat, seed=seed)
     elif n_star_rule == "objective":
         ns_sel = select_n_star(score_matrix_fit, labels_fit, tr, alpha, q_global,
                                delta_obs, d_hat, n_per_class, lam_sel["lambda"],

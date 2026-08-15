@@ -116,6 +116,59 @@ sebagai dua tingkat klaim yang berbeda, bukan digabung.
 4. **α = 0,05 pada φ kepala GAGAL** (Tabel 2 −0,0217, `n_star = 50`). Jadi hasil yang lolos
    spesifik untuk α = 0,10 sejauh ini. Itu batas cakupan, dan harus dinyatakan begitu.
 
+## KENAPA λ = 0 DI EKOR PANJANG — terjawab (2026-08-15)
+
+Tiga run berturut-turut melaporkan λ = 0 di Pl@ntNet dan iNat, dengan baris `head` dan
+`output` **identik sampai 16 digit** — bukti bahwa keluarga deskriptor tidak pernah masuk
+ke hasil sama sekali. Instrumentasi `zero_lambda_reason` dipasang, dan kurva λ dari
+`phase2_ltc_plantnet_head_a0.05_nc25_ho0.3_s0` menjawabnya:
+
+```
+λ:   0,0 → 0,5     0,05 → 0,0     0,1 → 0,0     ...     1,0 → 0,0
+```
+
+**Bukan datar, bukan menurun — sebuah tebing.** Statistiknya jatuh dari 0,5 ke **tepat
+0,0** begitu koreksi sekecil apa pun diterapkan, lalu diam di sana untuk setiap λ.
+
+Nilai 0,5 dan 0,0 adalah tanda pengenal kelas dengan **dua baris kalibrasi**: coverage-nya
+hanya bisa 0, 0,5, atau 1. Jadi objektif seleksi ditentukan oleh segelintir kelas yang
+perturbasi ambang sekecil apa pun langsung menjatuhkannya ke nol. `n_star` mengonfirmasi
+dari sisi lain: `curve_observed {5: 0,0, 10: 0,0}`, dan kandidat 20/30/50/75 **tidak bisa
+dievaluasi** — kurang dari 75 kelas sanggup menyisihkan barisnya.
+
+**Dua dugaan sebelumnya, keduanya salah, dicatat:**
+
+1. *"δ̂ degenerate"* — diuji pada dunia Zipf sintetis di mana hanya 7% kelas train punya
+   δ_obs; λ tetap 0,7, kurva tidak datar, sd(δ̂) 0,0024 vs sd(δ_obs) 0,0022. **Terbantah.**
+2. *"turun ke p25 cukup"* — tidak. Tebingnya bertahan bahkan pada kuantil ekor-bawah.
+
+Yang degenerate **bukan δ̂, melainkan OBJEKTIFNYA.** Metodenya menolak bertindak, dan
+penolakan itu benar: tidak ada λ yang bisa memperbaiki statistik yang sudah nol.
+
+### Satu bug yang tersingkap dari kurva yang sama
+
+`select_n_star_oos` dipanggil dengan `stat=stat`, bukan `stat=sel_stat` — jadi penurunan
+slice-tipis mencapai λ tetapi **tidak** mencapai `n_star`. Di dump ekor-panjang, dua
+parameter yang saling bergantung dipilih oleh **dua objektif berbeda** (`p25` untuk λ,
+`worst` untuk `n_star`). Terlihat langsung di laporan: `n_star` mencetak `stat: worst`
+padahal λ sudah diturunkan. Diperbaiki.
+
+### Perbaikan yang benar, dan mengapa bukan p25
+
+`prereg_metrics_per_dataset.md` sudah menetapkan aturannya untuk **pelaporan**: di rezim B
+statistik primernya `bin_worst` — kelas dikelompokkan menurut prevalensi sampai tiap bin
+memuat ≥200 baris evaluasi. Kurva ini menunjukkan aturan yang sama berlaku untuk
+**seleksi**, dan lebih keras dari yang diasumsikan: p25 pun tidak cukup, karena
+diskretisasi kelas 2-baris menembusnya.
+
+Jadi seleksi λ dan `n_star` di rezim B harus memakai **statistik tingkat-bin**, bukan
+kuantil per-kelas apa pun. Itu perbaikan berikutnya, dan ia bukan tambalan — ia
+menyelaraskan seleksi dengan aturan pelaporan yang sudah dipra-registrasi.
+
+**Sampai itu dikerjakan, "PCC gagal di ekor panjang" TIDAK BOLEH ditulis.** Yang benar:
+objektif seleksinya tidak terukur di sana, jadi metodenya tidak pernah bertindak — dan
+klaim ekor-panjang masih **belum diuji**, bukan terbantah.
+
 ## Ringkasan status klaim
 
 | Klaim | Status |
