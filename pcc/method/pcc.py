@@ -487,6 +487,14 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
     lam_sel["selection_stat"] = sel_stat
     lam_sel["median_fit_rows_per_train_class"] = med_fit
     lam_sel["selection_stat_downgraded"] = bool(sel_stat != stat)
+    # WHICH SLICE MAY lambda BE CHOSEN ON? nb05's Sec 6.4 scored it on EVAL rows of the
+    # train classes, fit_pcc scores it on CAL, and the two disagreed (+0.1173 vs 0).
+    # Only CAL is DEPLOYABLE -- at deployment there are no evaluation labels -- so CAL is
+    # the answer and nb05's figure was a measurement convenience, not a deployable one.
+    # lambda multiplies delta_hat ONLY, so it carries no in-sample optimism with respect
+    # to delta_obs; its residual optimism is that delta_hat is in-sample for g_theta,
+    # which row splitting cannot fix and `gtheta_cv_mse` reports instead.
+    lam_sel["scored_on"] = "CAL rows; lambda touches delta_hat only"
 
     if n_star_rule == "oos":
         ns_sel = select_n_star_oos(score_matrix_fit, labels_fit, tr, alpha, q_global,
