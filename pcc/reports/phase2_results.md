@@ -206,6 +206,65 @@ eksogen, dan **tidak** tertegakkan di dua dump ekor-panjang yang dirilis — den
 terukur, bukan sekadar disebut: kelas berkalibrasi dua baris membuat objektif per-kelas
 degenerate, dan bahkan setelah dikelompokkan ke bin, dayanya tidak cukup.
 
+## BACKBONE KEDUA (2026-08-16) — dan batas yang akhirnya terlihat
+
+Notebook 08 menjalankan PCC di atas skor ResNet-50 yang kita hitung sendiri (cache logit
+UMTTA, suhu Platt mereka), tiga keluarga φ × empat metode agregasi × 3 seed. 48/48 jalan.
+
+**Tidak satu pun signifikan.** Setiap CI antar-seed memuat nol, dan besarannya ~100×
+lebih kecil dari hasil CCC:
+
+| φ | Tabel 2 (`n_y = 0`) |
+|---|---|
+| `head_rn50` (model sama) | −0,0046 … +0,0015 |
+| `head_vit` (**eksogen**) | **tepat +0,0000** — λ=0 di 11 dari 12 konfigurasi |
+| ruang-output | +0,0011 … +0,0086 |
+
+### Pola yang muncul setelah empat setting, dan ia monoton
+
+Yang membedakan bukan dataset, bukan backbone, bukan keluarga φ. **Kedalaman kalibrasi
+per kelas:**
+
+| Setting | baris CAL / kelas | Tabel 2 (`n_y = 0`) |
+|---|---|---|
+| **ImageNet CCC** | **76** | **+0,0249** [+0,0054, +0,0444] ✓ |
+| ImageNet UMTTA | ~20 | ≈ 0, CI memuat nol |
+| Pl@ntNet | ~12 | +0,0269, CI memuat nol |
+| iNat-2018 | ~3 | tepat +0,0000 |
+
+Satu setting yang berhasil punya **tiga sampai dua puluh lima kali** lebih banyak data
+kalibrasi per kelas daripada yang lain. Itu penjelasan tunggal yang konsisten dengan
+keempatnya, dan ia terukur — bukan dugaan.
+
+Mekanismenya masuk akal: g_θ dilatih pada δ_y kelas TRAIN, dan δ_y itu sendiri kuantil
+empiris dari `n_cal` sampel. Kalau `n_cal` tipis, targetnya berderau, `r_δ` turun,
+plafonnya turun, dan seleksi λ menolak bertindak. Rantainya sama dengan yang menjelaskan
+kegagalan α kecil (`r_δ` 0,829 → 0,738 → 0,620): **δ_y yang berderau, apa pun sebabnya,
+menutup ruang gerak metodenya.**
+
+### Konsekuensi jujur untuk paper
+
+Klaim ekstrapolasi paling menarik justru di setting **label langka** — dan di sanalah ia
+**tidak bekerja**. Setting yang berhasil punya 76 sampel kalibrasi per kelas, yang bukan
+setting langka-label.
+
+Itu ketegangan inti proyek ini, sekarang **terukur pada empat setting**, bukan
+diperdebatkan. Ia harus ditulis sebagai temuan utama, bukan sebagai batasan di kaki
+halaman:
+
+> Koreksi kelas terprediksi memperbaiki ekuitas worst-class pada kelas tanpa sampel
+> kalibrasi **bila kelas-kelas lain punya kalibrasi yang cukup dalam** (≈76 baris/kelas
+> pada ImageNet). Di bawah ~26 baris/kelas efeknya hilang ke dalam derau di empat dataset
+> dan dua backbone. Prasyaratnya bukan jumlah kelas, bukan arsitektur, dan bukan pilihan
+> deskriptor — melainkan **kedalaman kalibrasi kelas yang dipakai melatih prediktornya.**
+
+### Yang TIDAK boleh disimpulkan dari run ini
+
+`head_vit` memberi tepat nol di hampir semua konfigurasi, jadi run ini **tidak menjawab**
+pertanyaan eksogenitas (apakah φ harus dari model lain). Objektifnya tidak bergerak sama
+sekali di sini, persis seperti Pl@ntNet sebelum perbaikan bin. Pertanyaan itu tetap hanya
+terjawab oleh CCC ImageNet, di mana φ kepala memang eksogen dan hasilnya positif.
+
 ## Ringkasan status klaim
 
 | Klaim | Status |
