@@ -388,3 +388,44 @@ def test_recalibration_ablation_changes_the_offset(world):
     assert off["pcc"]["offset"] == 0.0
     assert off["ablation"]["recalibrate"] is False
     assert on["ablation"]["recalibrate"] is True
+
+
+def test_recalibration_is_invisible_at_matched_size_and_visible_raw(world):
+    """The E3 ablation cannot be read off the matched-size tables, and that is a fact
+    about the metric rather than about the method.
+
+    `equity_at_matched_size` shifts every threshold by one scalar so both arms reach the
+    same average set size. PCC's marginal recalibration IS one scalar added to every
+    threshold, so the shift cancels it exactly and the ablation reports a delta of
+    literally 0.0000 -- which reads as "the component does nothing". The raw, unmatched
+    view is what makes the offset measurable, so both halves of that claim are pinned
+    here: identical matched, different raw.
+    """
+    on = drv.run(_args(world))
+    off = drv.run(_args(world, no_recalibrate=True))
+    assert on["pcc"]["offset"] != 0.0, "no offset fitted: this world cannot test E3"
+
+    t_on, t_off = on["table_2_heldout"], off["table_2_heldout"]
+    st = t_on["primary_stat"]
+    assert t_on["delta"][st] == pytest.approx(t_off["delta"][st], abs=1e-12)
+
+    r_on = t_on["raw_unmatched"]["pcc"]
+    r_off = t_off["raw_unmatched"]["pcc"]
+    assert r_on["avg_set_size"] != pytest.approx(r_off["avg_set_size"], abs=1e-9)
+    assert r_on["marginal_cov"] != pytest.approx(r_off["marginal_cov"], abs=1e-9)
+    # recalibration exists to put marginal coverage on target; it should get closer
+    tgt = 1.0 - 0.10
+    assert abs(r_on["marginal_cov"] - tgt) < abs(r_off["marginal_cov"] - tgt)
+
+
+def test_raw_unmatched_uses_thresholds_as_emitted(world):
+    """The raw block must not carry the size-matching shift, or it measures nothing new."""
+    res = drv.run(_args(world))
+    t = res["table_2_heldout"]
+    # the uncorrected arm at raw thresholds is the plain marginal conformal predictor:
+    # one global threshold, so its coverage is the split-conformal guarantee itself
+    assert t["raw_unmatched"]["uncorrected"]["marginal_cov"] == pytest.approx(0.90, abs=0.05)
+    assert set(t["raw_unmatched"]) == {"uncorrected", "pcc", "delta"}
+    assert t["raw_unmatched"]["delta"]["marginal_cov"] == pytest.approx(
+        t["raw_unmatched"]["pcc"]["marginal_cov"]
+        - t["raw_unmatched"]["uncorrected"]["marginal_cov"], abs=1e-12)

@@ -271,6 +271,29 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
     e_or = equity_at_matched_size(S_sub, y_sub, K_sub, q_or, target)
     e_or = _abs(q_or, e_or)
 
+    # UNMATCHED thresholds, taken exactly as the method emits them.
+    #
+    # Every number above is computed after a scalar shift that forces both arms to the
+    # same average set size -- which is the point (Amendment 8: match the resource, read
+    # the benefit), but it also means a CONSTANT added to every threshold is cancelled
+    # exactly. PCC's marginal recalibration is precisely such a constant, so the E3
+    # ablation ("recalibration on/off") is invisible in the matched tables by
+    # construction, and the dry-run made that visible by returning deltas of exactly
+    # 0.0000. The offset is not doing nothing; it is doing something this view cannot
+    # see. So the raw view is recorded too: it is where marginal validity actually lives.
+    def _raw(thr):
+        t = np.asarray(thr, float)
+        sets = np.asarray(S_sub) <= t[None, :]
+        hit = S_sub[rows_i, y_sub] <= t[y_sub]
+        cov = per_class_coverage(sets, y_sub, K_sub)
+        return {"marginal_cov": float(np.mean(hit)),
+                "avg_set_size": float(sets.sum(axis=1).mean()),
+                "cov_gap_vs_target": float(np.nanmean(np.abs(cov - tgt))),
+                "frac_classes_below_target": float(np.nanmean(cov < tgt)),
+                "worst": float(np.nanmin(cov)) if np.isfinite(cov).any() else float("nan")}
+
+    raw_base, raw_pcc = _raw(base), _raw(t_pcc)
+
     out = {
         "n_classes": int(K_sub), "n_rows": int(len(y_sub)),
         "target_avg_set_size": float(target), "alpha": float(alpha),
@@ -281,6 +304,8 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
         "delta_oracle": {k: e_or[k] - e_base[k] for k in e_base
                          if k not in ("shift", "size_strata")},
         "size_matched": bool(abs(e_pcc["avg_set_size"] - e_base["avg_set_size"]) < 1e-2),
+        "raw_unmatched": {"uncorrected": raw_base, "pcc": raw_pcc,
+                          "delta": {k: raw_pcc[k] - raw_base[k] for k in raw_base}},
     }
 
     if not meas["per_class_stats_reportable"] and counts is not None:
