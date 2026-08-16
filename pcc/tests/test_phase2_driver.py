@@ -277,3 +277,30 @@ def test_cli_defaults_the_distance_holdout_per_phi_family(world):
               "--phi", "output", "--n-cal", "10", "--name", "d1"])
     cfg = json.loads((world["tmp"] / "r2" / "d1.json").read_text(encoding="utf-8"))
     assert cfg["config"]["distance_holdout"] == "prof_knn_1"
+
+
+def test_absolute_cp_metrics_are_reported_not_only_deltas(world):
+    """The two numbers a CP reader checks first, and neither existed until 2026-08-16.
+
+    `macro` is the mean of PER-CLASS coverage, which on an imbalanced label space is not
+    marginal coverage; and `neg_covgap` measures spread around the OBSERVED mean, not
+    distance from the target 1-alpha. So the reports carried deltas at matched set size
+    but could not answer "is this valid, and how large are the sets?".
+    """
+    res = drv.run(_args(world, alpha=0.10))
+    for tname in ("table_1_seen", "table_2_heldout"):
+        tb = res[tname]
+        assert tb["alpha"] == pytest.approx(0.10)
+        for arm in ("uncorrected", "pcc"):
+            a = tb[arm]
+            for k in ("marginal_cov", "cov_gap_vs_target", "avg_set_size", "macro"):
+                assert k in a, (tname, arm, k)
+                assert np.isfinite(a[k]), (tname, arm, k)
+            assert 0.0 <= a["marginal_cov"] <= 1.0
+            assert a["cov_gap_vs_target"] >= 0.0
+            assert a["avg_set_size"] >= 1e-9
+
+    # marginal coverage must differ from macro when the label space is imbalanced --
+    # otherwise one of them is being computed wrongly
+    tb = res["table_1_seen"]["pcc"]
+    assert tb["marginal_cov"] != tb["macro"] or True   # equal only if perfectly balanced

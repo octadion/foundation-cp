@@ -41,6 +41,7 @@ import numpy as np
 from pcc.descriptors.head_weights import build_head_descriptors
 from pcc.descriptors.output_space import build_output_descriptors
 from pcc.eval.conformal import restrict_to_classes
+from pcc.eval.metrics import per_class_coverage
 from pcc.eval.setsize import avg_set_size_at_shift, equity_at_matched_size
 from pcc.eval.stats import mean_ci
 from pcc.method.pcc import fit_pcc
@@ -190,7 +191,8 @@ def _bin_coverage(S_sub, y_sub, thresholds, bins, id_of_class):
 
 
 # ------------------------------------------------------------------- evaluation
-def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None):
+def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None,
+               alpha=0.10):
     """Equity of PCC vs the marginal threshold, inside one label space, matched size.
 
     Per-class statistics that the pre-registration says are unmeasurable on this slice are
@@ -204,9 +206,26 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
     e_pcc = equity_at_matched_size(S_sub, y_sub, K_sub, t_pcc, target)
 
     meas = measurability(y_sub, np.arange(K_sub))
+    # THE TWO NUMBERS A CP READER LOOKS FOR FIRST, and neither was being reported.
+    #
+    # `macro` is the mean of PER-CLASS coverage; on an imbalanced label space that is not
+    # marginal coverage, which is the fraction of all test points covered and the thing
+    # the split-conformal guarantee is about. And `neg_covgap` measures spread around the
+    # OBSERVED mean, not distance from the TARGET 1-alpha -- so neither of the stats we
+    # had answers "is this valid?". Both are added here, absolute, for both arms.
+    def _abs(thr, e):
+        t = np.asarray(thr, float) + e["shift"]
+        cov = per_class_coverage(np.asarray(S_sub) <= t[None, :], y_sub, K_sub)
+        e["marginal_cov"] = float(np.mean(S_sub[np.arange(len(y_sub)), y_sub] <= t[y_sub]))
+        e["cov_gap_vs_target"] = float(np.nanmean(np.abs(cov - (1.0 - float(alpha)))))
+        return e
+
+    e_base = _abs(base, e_base)
+    e_pcc = _abs(t_pcc, e_pcc)
+
     out = {
         "n_classes": int(K_sub), "n_rows": int(len(y_sub)),
-        "target_avg_set_size": float(target),
+        "target_avg_set_size": float(target), "alpha": float(alpha),
         "measurability": meas,
         "uncorrected": e_base, "pcc": e_pcc,
         "delta": {k: e_pcc[k] - e_base[k] for k in e_base if k != "shift"},
@@ -430,11 +449,11 @@ def run(args) -> dict:
                 "features": list(model.gtheta.feature_names),
                 "provenance": model.provenance},
         "table_1_seen": _one_table(S_ev, y_ev, seen, q_global, t, args.stat,
-                                   counts=cnt_full),
+                                   counts=cnt_full, alpha=args.alpha),
     }
     if len(heldout):
         res["table_2_heldout"] = _one_table(S_ev, y_ev, heldout, q_global, t, args.stat,
-                                            counts=cnt_full)
+                                            counts=cnt_full, alpha=args.alpha)
 
     if args.ccc_root:
         try:
