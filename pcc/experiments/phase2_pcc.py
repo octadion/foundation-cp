@@ -213,22 +213,73 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
     # the split-conformal guarantee is about. And `neg_covgap` measures spread around the
     # OBSERVED mean, not distance from the TARGET 1-alpha -- so neither of the stats we
     # had answers "is this valid?". Both are added here, absolute, for both arms.
+    tgt = 1.0 - float(alpha)
+    rows_i = np.arange(len(y_sub))
+
     def _abs(thr, e):
         t = np.asarray(thr, float) + e["shift"]
-        cov = per_class_coverage(np.asarray(S_sub) <= t[None, :], y_sub, K_sub)
-        e["marginal_cov"] = float(np.mean(S_sub[np.arange(len(y_sub)), y_sub] <= t[y_sub]))
-        e["cov_gap_vs_target"] = float(np.nanmean(np.abs(cov - (1.0 - float(alpha)))))
+        sets = np.asarray(S_sub) <= t[None, :]
+        hit = S_sub[rows_i, y_sub] <= t[y_sub]
+        cov = per_class_coverage(sets, y_sub, K_sub)
+        e["marginal_cov"] = float(np.mean(hit))
+        e["cov_gap_vs_target"] = float(np.nanmean(np.abs(cov - tgt)))
+
+        # %classes below target -- reported by the old UM-TTA paper. Dropping a metric a
+        # previous submission carried reads as regression to the same reviewers.
+        e["frac_classes_below_target"] = float(np.nanmean(cov < tgt))
+
+        # SSCV, standard since RAPS (Angelopoulos 2021): stratify TEST POINTS by the size
+        # of the set they receive, then take the worst deviation from target across
+        # strata. A method can hold marginal coverage while systematically under-covering
+        # exactly the points it gives small sets to, and only this metric shows it.
+        sz = sets.sum(axis=1)
+        edges = [(1, 1), (2, 3), (4, 10), (11, 100), (101, int(K_sub))]
+        viol, strat = [], {}
+        for lo, hi in edges:
+            m = (sz >= lo) & (sz <= hi)
+            if m.sum() >= 30:                      # below this a stratum is noise
+                c = float(hit[m].mean())
+                strat["{}-{}".format(lo, hi)] = {"cov": c, "n": int(m.sum())}
+                viol.append(abs(c - tgt))
+        e["sscv"] = float(max(viol)) if viol else float("nan")
+        e["size_strata"] = strat
+
+        # Worst-slab over contiguous prevalence-ordered class windows: a coarser,
+        # measurable cousin of worst-class that does not collapse on thin classes.
+        order = np.argsort(np.asarray(counts, float)[ids] if counts is not None
+                           else np.arange(K_sub), kind="stable")
+        w = max(5, K_sub // 20)
+        slabs = [float(np.nanmean(cov[order[i:i + w]]))
+                 for i in range(0, K_sub - w + 1, max(1, w // 2))]
+        slabs = [v for v in slabs if np.isfinite(v)]
+        e["worst_slab"] = float(min(slabs)) if slabs else float("nan")
         return e
 
     e_base = _abs(base, e_base)
     e_pcc = _abs(t_pcc, e_pcc)
 
+    # ORACLE CEILING -- the number that gives +0.0249 a scale. It uses EVAL labels, so it
+    # is unachievable by construction; it exists only to say how much of the available
+    # room the method took. Without it the headline has no denominator, and nb05 showed
+    # the room can be near zero, in which case any figure is unreadable.
+    s_true = S_sub[rows_i, y_sub]
+    q_or = np.full(K_sub, float(q_global))
+    for k in range(K_sub):
+        m = y_sub == k
+        if m.sum() >= 5:
+            q_or[k] = float(np.quantile(s_true[m], tgt))
+    e_or = equity_at_matched_size(S_sub, y_sub, K_sub, q_or, target)
+    e_or = _abs(q_or, e_or)
+
     out = {
         "n_classes": int(K_sub), "n_rows": int(len(y_sub)),
         "target_avg_set_size": float(target), "alpha": float(alpha),
         "measurability": meas,
-        "uncorrected": e_base, "pcc": e_pcc,
-        "delta": {k: e_pcc[k] - e_base[k] for k in e_base if k != "shift"},
+        "uncorrected": e_base, "pcc": e_pcc, "oracle": e_or,
+        "delta": {k: e_pcc[k] - e_base[k] for k in e_base
+                  if k not in ("shift", "size_strata")},
+        "delta_oracle": {k: e_or[k] - e_base[k] for k in e_base
+                         if k not in ("shift", "size_strata")},
         "size_matched": bool(abs(e_pcc["avg_set_size"] - e_base["avg_set_size"]) < 1e-2),
     }
 

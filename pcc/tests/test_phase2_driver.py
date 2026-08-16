@@ -304,3 +304,36 @@ def test_absolute_cp_metrics_are_reported_not_only_deltas(world):
     # otherwise one of them is being computed wrongly
     tb = res["table_1_seen"]["pcc"]
     assert tb["marginal_cov"] != tb["macro"] or True   # equal only if perfectly balanced
+
+
+def test_oracle_ceiling_and_the_metrics_the_old_paper_reported(world):
+    """Four metrics a top-venue CP table needs, none of which existed before.
+
+    The oracle matters most: without it +0.0249 has no denominator, and nb05 showed the
+    available room can be near zero, in which case any figure is unreadable. SSCV is
+    standard since RAPS and catches a method that holds marginal coverage while
+    systematically under-covering the points it gives small sets to. worst_slab and
+    frac_classes_below_target were both reported by the UM-TTA submission -- dropping
+    them would read as regression to the same reviewers.
+    """
+    res = drv.run(_args(world, alpha=0.10))
+    for tname in ("table_1_seen", "table_2_heldout"):
+        tb = res[tname]
+        assert "oracle" in tb and "delta_oracle" in tb
+        for arm in ("uncorrected", "pcc", "oracle"):
+            a = tb[arm]
+            for k in ("sscv", "worst_slab", "frac_classes_below_target"):
+                assert k in a, (tname, arm, k)
+            assert 0.0 <= a["frac_classes_below_target"] <= 1.0
+            assert np.isfinite(a["worst_slab"])
+            assert a["size_strata"], (tname, arm)
+
+        # the oracle uses EVAL labels, so on the statistic being optimised it cannot be
+        # beaten -- if PCC ever exceeds it, the comparison is wired wrong
+        st = tb["primary_stat"]
+        if st in tb["oracle"] and st in tb["pcc"]:
+            assert tb["oracle"][st] >= tb["pcc"][st] - 1e-9, (tname, st)
+
+    # size_strata must be excluded from the delta dicts -- it is a dict, not a number
+    assert "size_strata" not in res["table_1_seen"]["delta"]
+    assert "size_strata" not in res["table_1_seen"]["delta_oracle"]
