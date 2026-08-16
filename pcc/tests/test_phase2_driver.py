@@ -337,3 +337,54 @@ def test_oracle_ceiling_and_the_metrics_the_old_paper_reported(world):
     # size_strata must be excluded from the delta dicts -- it is a dict, not a number
     assert "size_strata" not in res["table_1_seen"]["delta"]
     assert "size_strata" not in res["table_1_seen"]["delta_oracle"]
+
+
+def test_cal_depth_actually_caps_rows_per_class(world):
+    """The sweep axis. Four settings disagreed about whether PCC works and the only thing
+    separating them was calibration rows per class -- but that was confounded with dataset
+    and backbone. Capping depth inside ONE dump removes the confound, so the cap has to
+    really bind."""
+    full = drv.run(_args(world))
+    deep = full["cal_rows_per_seen_class"]["median"]
+    cap = max(3, int(deep) // 2)
+    thin = drv.run(_args(world, cal_depth=cap, n_cal=3))
+    assert thin["cal_rows_per_seen_class"]["max"] <= cap
+    assert thin["cal_rows_per_seen_class"]["median"] < deep
+    assert thin["ablation"]["cal_depth"] == cap
+    assert thin["split_sizes"]["cal_seen"] < full["split_sizes"]["cal_seen"]
+
+
+def test_lambda_override_reaches_the_thresholds_and_is_recorded(world):
+    """lambda = 0 must reduce held-out classes to the global threshold exactly, and
+    lambda = 1 must be the raw unshrunk delta_hat that Amendment 8 measured as harmful.
+    Both are needed to show shrinkage is part of the method, not a tuning detail."""
+    zero = drv.run(_args(world, lam_override=0.0))
+    assert zero["pcc"]["lambda"] == 0.0
+    assert zero["pcc"]["provenance"]["n_star_rule"]
+    # with no correction on held-out classes, Table 2 must be exactly unchanged
+    t2 = zero["table_2_heldout"]
+    assert abs(t2["delta"][t2["primary_stat"]]) < 1e-12
+
+    one = drv.run(_args(world, lam_override=1.0))
+    assert one["pcc"]["lambda"] == 1.0
+    assert one["ablation"]["lam_override"] == 1.0
+
+
+def test_feature_group_ablation_selects_the_right_columns(world):
+    dist = drv.run(_args(world, feature_group="distance"))
+    assert dist["pcc"]["features"] and all("knn" in f for f in dist["pcc"]["features"])
+    nop = drv.run(_args(world, feature_group="no_prevalence"))
+    assert "log_prevalence" not in nop["pcc"]["features"]
+    assert nop["ablation"]["feature_group"] == "no_prevalence"
+    # prevalence-only is a VALID ablation, not an error: it is the trivial-predictor arm
+    # that gate C already tests against, and PCC must be shown to beat it end-to-end too.
+    prev = drv.run(_args(world, feature_group="prevalence"))
+    assert prev["pcc"]["features"] == ["log_prevalence"]
+
+
+def test_recalibration_ablation_changes_the_offset(world):
+    on = drv.run(_args(world))
+    off = drv.run(_args(world, no_recalibrate=True))
+    assert off["pcc"]["offset"] == 0.0
+    assert off["ablation"]["recalibrate"] is False
+    assert on["ablation"]["recalibrate"] is True

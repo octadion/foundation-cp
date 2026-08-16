@@ -502,6 +502,7 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
             ridge_alpha: float = 1.0, target_size: Optional[float] = None,
             stat: str = "worst", n_folds: int = 5, n_star_rule: str = "oos",
             class_counts: Optional[np.ndarray] = None,
+            lam_override: Optional[float] = None,
             recalibrate: bool = True, seed: int = 0) -> PCCModel:
     """Fit the whole method on the FIT slice and the TRAIN label space only.
 
@@ -634,6 +635,16 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
                   "curve": {}, "stat": stat, "value": float("nan")}
     else:
         raise ValueError("n_star_rule must be 'oos', 'objective' or 'mse'")
+
+    # ABLATION hook. lambda = 0 removes the correction entirely (the method reduces to
+    # the global threshold on held-out classes); lambda = 1 is the raw, unshrunk delta_hat
+    # that Amendment 8 measured as HARMFUL. Both are needed to show shrinkage is part of
+    # the method rather than a tuning detail, and the override is recorded so a report can
+    # never be mistaken for a normal run.
+    if lam_override is not None:
+        lam_sel = dict(lam_sel, lambda_selected=lam_sel["lambda"],
+                       ablation_override=float(lam_override))
+        lam_sel["lambda"] = float(lam_override)
 
     blend = blend_delta(delta_obs, d_hat, n_per_class, ns_sel["n_star"],
                         lam_sel["lambda"])

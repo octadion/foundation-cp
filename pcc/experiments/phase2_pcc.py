@@ -391,6 +391,19 @@ def run(args) -> dict:
     keep_cal = ~np.isin(y_all[i_cal], heldout)
     i_cal_seen = i_cal[keep_cal]
 
+    # CALIBRATION DEPTH -- the sweep axis. Four settings disagreed about whether PCC works
+    # and the only thing that separated them was rows per class (76 vs 20 vs 12 vs 3), but
+    # that was confounded with dataset and backbone. Capping depth inside ONE dump turns
+    # an accidental cross-dataset observation into a designed curve.
+    if getattr(args, "cal_depth", None):
+        rr = np.random.default_rng(args.seed + 777)
+        keep = []
+        for c in seen:
+            idx = i_cal_seen[y_all[i_cal_seen] == c]
+            keep.append(rr.choice(idx, int(args.cal_depth), replace=False)
+                        if len(idx) > args.cal_depth else idx)
+        i_cal_seen = np.sort(np.concatenate(keep)) if keep else i_cal_seen
+
     S_desc = thr_lac(S_all[i_desc])
     S_cal = thr_lac(S_all[i_cal_seen])
     y_cal = y_all[i_cal_seen]
@@ -451,6 +464,15 @@ def run(args) -> dict:
         raise ValueError("--distance-holdout {!r} is not a descriptor of the {!r} family; "
                          "available: {}".format(args.distance_holdout, args.phi, names))
     feats = [f for f in names if f != args.distance_holdout]
+    grp = getattr(args, "feature_group", "all")
+    if grp == "distance":                 # ablasi E4: hanya jarak
+        feats = [f for f in feats if "knn" in f]
+    elif grp == "prevalence":
+        feats = [f for f in feats if f == "log_prevalence"]
+    elif grp == "no_prevalence":
+        feats = [f for f in feats if f != "log_prevalence"]
+    if not feats:
+        raise ValueError("feature_group {!r} left no features from {}".format(grp, names))
 
     seen_counts = np.sort(n_per_class[seen])[::-1]
     n_trainable = int(np.isfinite(delta_obs[seen]).sum())
@@ -475,6 +497,9 @@ def run(args) -> dict:
     model = fit_pcc(Phi, names, delta_obs, n_per_class, q_global, args.alpha,
                     score_matrix_fit=S_cal, labels_fit=y_cal, train_classes=seen,
                     features=feats, stat=args.stat, class_counts=cnt_full,
+                    lam_override=getattr(args, "lam_override", None),
+                    n_star_rule=getattr(args, "n_star_rule", "oos"),
+                    recalibrate=not getattr(args, "no_recalibrate", False),
                     seed=args.seed)
     t = model.thresholds()
 
@@ -486,6 +511,11 @@ def run(args) -> dict:
         "subsample_frac_of_dump": float(len(y_all) / n_dump),
         "q_global": q_global,
         "knn_ks_used": list(knn_ks), "knn_ks_dropped_K_too_small": list(knn_dropped),
+        "ablation": {"cal_depth": getattr(args, "cal_depth", None),
+                     "lam_override": getattr(args, "lam_override", None),
+                     "n_star_rule": getattr(args, "n_star_rule", "oos"),
+                     "recalibrate": not getattr(args, "no_recalibrate", False),
+                     "feature_group": getattr(args, "feature_group", "all")},
         "delta_obs_defined": int(np.isfinite(delta_obs).sum()),
         "cal_rows_per_seen_class": {"median": float(np.median(n_per_class[seen])),
                                     "min": int(n_per_class[seen].min()),
@@ -564,6 +594,15 @@ def main(argv=None) -> int:
     p.add_argument("--stat", default="worst")
     p.add_argument("--ccc-root", default=None,
                    help="cloned class-conditional-conformal root, for Table 1 baselines")
+    p.add_argument("--cal-depth", type=int, default=None,
+                   help="cap CAL rows per SEEN class -- the calibration-depth sweep axis")
+    p.add_argument("--lam-override", type=float, default=None,
+                   help="ablation: force lambda (0 = no correction, 1 = raw delta_hat)")
+    p.add_argument("--n-star-rule", default="oos", choices=("oos", "objective", "mse"))
+    p.add_argument("--no-recalibrate", action="store_true",
+                   help="ablation: drop the marginal offset")
+    p.add_argument("--feature-group", default="all",
+                   choices=("all", "distance", "prevalence", "no_prevalence"))
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--name", default=None)
     p.add_argument("--print-json", action="store_true")
