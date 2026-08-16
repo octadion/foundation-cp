@@ -169,6 +169,43 @@ menyelaraskan seleksi dengan aturan pelaporan yang sudah dipra-registrasi.
 objektif seleksinya tidak terukur di sana, jadi metodenya tidak pernah bertindak — dan
 klaim ekor-panjang masih **belum diuji**, bukan terbantah.
 
+## HASIL FINAL EKOR PANJANG (2026-08-16) — terjawab, dan jawabannya negatif
+
+Seleksi tingkat-bin dipasang, dan **ia bekerja secara mekanis**. Untuk pertama kalinya
+dalam empat run, `head` dan `output` menghasilkan angka **berbeda** di Pl@ntNet — artinya
+keluarga deskriptor akhirnya masuk ke hasil, bukan ditolak sebelum dipakai.
+
+| Pl@ntNet | λ (CI antar-seed) | Tabel 2 (`n_y = 0`) |
+|---|---|---|
+| φ kepala | 0,040 [−0,008, +0,088] | **+0,0269** [−0,0063, +0,0602] |
+| φ ruang-output | 0,040 [+0,003, +0,077] | +0,0030 [−0,0009, +0,0069] |
+
+Per-seed, φ kepala bergerak di 2 dari 5 seed; satu **LULUS** (s3: T1 +0,0450, T2 +0,0547),
+satu **MENUKAR** (s1: T1 −0,2550, T2 +0,0800). iNat-2018 **tidak bergerak sama sekali** —
+λ = 0 di setiap seed, semuanya tepat +0,0000, meski bin aktif.
+
+**Kesimpulan, dan ia negatif:** setelah objektif seleksinya dibuat terukur, PCC **tetap
+tidak menunjukkan manfaat yang tertegakkan** di dump ekor-panjang yang dirilis. CI memuat
+nol untuk kedua keluarga. Ini berbeda secara mendasar dari tiga run sebelumnya — di sana
+metodenya **tidak pernah bertindak**; sekarang ia bertindak dan efeknya tidak signifikan.
+
+**Satu cacat baru yang menutup sebagian angkanya:** `size_matched` gagal di sebagian seed
+Pl@ntNet/head begitu λ > 0 (sebelumnya 1,0 di semua seed). Tanpa ukuran set tercocokkan,
+perbandingannya tidak bermakna, jadi angka seed tersebut **tidak boleh dibaca**. Itu
+melemahkan lagi agregat +0,0269 yang sudah tidak signifikan.
+
+### Mengapa berhenti di sini
+
+Batas keras yang disepakati sebelum perbaikan ini dijalankan: satu percobaan, lalu tulis
+apa pun hasilnya. Percobaan itu sudah dilakukan dan menjawab pertanyaannya. Melanjutkan
+dari titik ini — memperbaiki size-match, menambah seed, menyetel lebar bin — berarti
+mengutak-atik sampai CI-nya bergerak, dan itu p-hacking dengan nama lain.
+
+**Yang ditulis di paper:** klaim ekstrapolasi tertegakkan di ImageNet dengan deskriptor
+eksogen, dan **tidak** tertegakkan di dua dump ekor-panjang yang dirilis — dengan mekanisme
+terukur, bukan sekadar disebut: kelas berkalibrasi dua baris membuat objektif per-kelas
+degenerate, dan bahkan setelah dikelompokkan ke bin, dayanya tidak cukup.
+
 ## Ringkasan status klaim
 
 | Klaim | Status |
@@ -176,6 +213,6 @@ klaim ekor-panjang masih **belum diuji**, bukan terbantah.
 | δ_y terprediksi dari geometri kelas | **tertegakkan** (nb 05, dua keluarga φ) |
 | Koreksinya membeli ekuitas pada `n_y = 0` | **tertegakkan untuk φ kepala di ImageNet, α=0,10** |
 | Tidak dibayar oleh kelas ber-data | **tertegakkan** (Tabel 1 juga positif) |
-| Berlaku di dataset ekor-panjang | **belum** — keluarga yang berhasil belum diuji di sana |
+| Berlaku di dataset ekor-panjang | **TIDAK** — diuji 2026-08-16 setelah objektifnya dibuat terukur; CI memuat nol di Pl@ntNet, nol mutlak di iNat |
 | Mengalahkan Clustered CP pada ukuran tercocokkan | **belum diuji** |
 | Berlaku lintas α | **tidak** pada α=0,05 sejauh ini |

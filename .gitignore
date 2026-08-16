@@ -24,3 +24,9 @@ reports/**/*.npz
 # OS / editor
 .DS_Store
 .ipynb_checkpoints/
+
+# Run artefact folders copied back from Colab -- kept out of git on purpose.
+# The findings live in pcc/reports/*.md; the raw per-configuration JSONs are bulky
+# and belong in Drive, not here.
+nb0*_2*/
+runs/
