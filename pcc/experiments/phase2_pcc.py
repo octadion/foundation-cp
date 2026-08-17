@@ -231,6 +231,12 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
         hit = S_sub[rows_i, y_sub] <= t[y_sub]
         cov = per_class_coverage(sets, y_sub, K_sub)
         e["marginal_cov"] = float(np.mean(hit))
+        # Empty-set rate. Under distribution shift a threshold calibrated on clean data
+        # can put NOTHING in the set: the ImageNet-C phase produced average set sizes
+        # below 1.0, which is only possible if a large share of rows get an empty set.
+        # Coverage and set size both look merely "low" in that regime; this is the number
+        # that says the predictor abstained rather than guessed narrowly.
+        e["frac_empty_sets"] = float(np.mean(sets.sum(axis=1) == 0))
         e["cov_gap_vs_target"] = float(np.nanmean(np.abs(cov - tgt)))
 
         # %classes below target -- reported by the old UM-TTA paper. Dropping a metric a

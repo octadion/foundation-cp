@@ -390,6 +390,23 @@ def test_recalibration_ablation_changes_the_offset(world):
     assert on["ablation"]["recalibrate"] is True
 
 
+def test_empty_set_rate_is_reported_for_every_arm(world):
+    """Average set size below 1.0 is only possible with empty sets, and the ImageNet-C
+    phase produces exactly that: a threshold calibrated on clean images can put nothing in
+    the set once the images are corrupted. Coverage and size both merely look "low" there;
+    the empty-set rate is what says the predictor abstained rather than guessed narrowly."""
+    res = drv.run(_args(world))
+    for tn in ("table_1_seen", "table_2_heldout"):
+        t = res[tn]
+        for arm in ("uncorrected", "pcc", "oracle"):
+            f = t[arm]["frac_empty_sets"]
+            assert 0.0 <= f <= 1.0, (tn, arm, f)
+        # a size at or above 1 with a non-zero empty rate would be self-contradictory
+        if t["pcc"]["avg_set_size"] < 1.0:
+            assert t["pcc"]["frac_empty_sets"] > 0.0
+        assert "frac_empty_sets" in t["delta"]
+
+
 def test_competitors_are_opt_in_because_they_cost_25_minutes_a_run(world):
     """One fuzzy_classwise_CP fit is ~99 s at K=1000 with 122k calibration rows, measured.
     Fifteen candidates per run means competitors cannot be on in every ablation cell, so
