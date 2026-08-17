@@ -25,27 +25,48 @@ def thr_lac(probs: np.ndarray) -> np.ndarray:
     return 1.0 - probs
 
 
-def _sorted_parts(probs: np.ndarray):
-    """Descending sort, cumulative mass at each label, and each label's 1-based rank.
+# Rows are INDEPENDENT in every one of these scores, so the whole matrix never has to be
+# resident in transformed form at once. That matters at the real scale: at 250k x 1000 the
+# unchunked version peaked at 10 GB for APS, 14 for RAPS and 16 for SAPS against Colab's
+# ~12.7 GB, which is exactly how notebook 12 died while notebook 09 -- THR only, 1 GB --
+# did not. Chunking bounds the temporaries; the input dtype is preserved rather than
+# upcast to float64, which also matches what the reference implementation actually
+# computes in when handed a float32 softmax dump.
+CHUNK_ROWS = 20_000
 
-    Written to mirror `get_APS_scores_all` in the long-tail-conformal repo exactly:
-    sort descending, cumsum, then gather back to original label order via argsort of
-    the permutation. `pi.argsort(1)` is the rank of each label, and adding one makes it
-    1-based, which is what RAPS regularizes against.
+
+def _sorted_parts(p: np.ndarray):
+    """Descending sort, cumulative mass at each label, and each label's 0-based rank.
+
+    Mirrors `get_APS_scores_all` in the long-tail-conformal repo: sort descending, cumsum,
+    then gather back to original label order via argsort of the permutation. `argsort` of
+    the permutation is the rank of each label; adding one makes it 1-based, which is what
+    RAPS regularizes against. int32 ranks halve two full-size intermediates and cannot
+    overflow -- a label index is bounded by the number of classes.
     """
-    p = np.asarray(probs, dtype=np.float64)
-    order = np.argsort(-p, axis=1, kind="stable")
-    rank = np.argsort(order, axis=1)                 # 0-based rank of each label
+    order = np.argsort(-p, axis=1, kind="stable").astype(np.int32, copy=False)
+    rank = np.argsort(order, axis=1).astype(np.int32, copy=False)
     cum = np.take_along_axis(np.cumsum(np.take_along_axis(p, order, axis=1), axis=1),
                              rank, axis=1)
-    return p, cum, rank
+    return cum, rank
 
 
-def _derandomize(p, scores, randomize, seed):
-    """Subtract U * p_y (randomized) or p_y (not), matching the reference exactly."""
-    if not randomize:
-        return scores - p
-    return scores - np.random.RandomState(seed).rand(*p.shape) * p
+def _blockwise(probs, fn, randomize, seed):
+    """Apply a row-independent score to row blocks, sharing ONE uniform stream.
+
+    `RandomState.rand` fills C-order, so drawing block by block in row order yields the
+    identical draws as one full-matrix call -- which is what keeps this bit-identical to
+    the unchunked version and to the reference. Drawing per block with a fresh RandomState
+    would silently reuse the same uniforms for every block.
+    """
+    p = np.asarray(probs)
+    out = np.empty(p.shape, dtype=p.dtype)
+    rs = np.random.RandomState(seed) if randomize else None
+    for i in range(0, p.shape[0], CHUNK_ROWS):
+        blk = p[i:i + CHUNK_ROWS]
+        u = rs.rand(*blk.shape) if rs is not None else None
+        out[i:i + CHUNK_ROWS] = fn(blk, u)
+    return out
 
 
 def aps(probs: np.ndarray, *, randomize: bool = True, seed: int = 42) -> np.ndarray:
@@ -54,8 +75,10 @@ def aps(probs: np.ndarray, *, randomize: bool = True, seed: int = 42) -> np.ndar
     Verified elementwise against `utils.conformal_utils.get_APS_scores_all` from the
     long-tail-conformal release (§7 reproduction) in `pcc/tests/test_scores.py`.
     """
-    p, cum, _ = _sorted_parts(probs)
-    return _derandomize(p, cum, randomize, seed)
+    def _f(p, u):
+        cum, _ = _sorted_parts(p)
+        return cum - (u * p if u is not None else p)
+    return _blockwise(probs, _f, randomize, seed)
 
 
 def raps(probs: np.ndarray, *, k_reg: int, lam: float, randomize: bool = True,
@@ -65,9 +88,11 @@ def raps(probs: np.ndarray, *, k_reg: int, lam: float, randomize: bool = True,
     The penalty is `max(0, lam * (rank - k_reg))` with a 1-BASED rank, applied to every
     label as if it were the true one. Verified against `get_RAPS_scores_all`.
     """
-    p, cum, rank = _sorted_parts(probs)
-    reg = np.maximum(lam * ((rank + 1) - k_reg), 0.0)
-    return _derandomize(p, cum + reg, randomize, seed)
+    def _f(p, u):
+        cum, rank = _sorted_parts(p)
+        cum += np.maximum(lam * ((rank + 1) - k_reg), 0.0)
+        return cum - (u * p if u is not None else p)
+    return _blockwise(probs, _f, randomize, seed)
 
 
 def saps(probs: np.ndarray, *, lam: float, randomize: bool = True,
@@ -86,12 +111,13 @@ def saps(probs: np.ndarray, *, lam: float, randomize: bool = True,
     must reduce to THR-like behaviour, scores must increase with rank, and the whole
     matrix must be non-negative.
     """
-    p, _, rank = _sorted_parts(probs)
-    p_max = p.max(axis=1, keepdims=True)
-    u = (np.random.RandomState(seed).rand(*p.shape) if randomize
-         else np.ones(p.shape, dtype=np.float64))
-    o = rank + 1                                     # 1-based rank
-    return np.where(o == 1, u * p_max, p_max + (o - 2 + u) * lam)
+    def _f(p, u):
+        _, rank = _sorted_parts(p)
+        p_max = p.max(axis=1, keepdims=True)
+        uu = u if u is not None else np.ones(p.shape, dtype=p.dtype)
+        o = rank + 1                                 # 1-based rank
+        return np.where(o == 1, uu * p_max, p_max + (o - 2 + uu) * lam)
+    return _blockwise(probs, _f, randomize, seed)
 
 
 SCORE_FNS = {

@@ -97,6 +97,42 @@ def test_saps_lambda_controls_set_size_growth(probs):
     assert (b <= t).sum() < (a <= t).sum()
 
 
+def test_chunking_is_equivalent_to_not_chunking(probs):
+    """The chunked path must be BIT-identical to the whole-matrix path, at any block size.
+
+    The trap is the uniform stream: `RandomState.rand` fills C-order, so blocks must be
+    drawn in row order from ONE RandomState. A fresh RandomState per block would silently
+    hand every block the same uniforms -- randomised scores that correlate across blocks,
+    which nothing downstream would flag.
+    """
+    import pcc.scores.base as B
+    keep = B.CHUNK_ROWS
+    try:
+        B.CHUNK_ROWS = len(probs) + 10                   # one block: the unchunked path
+        ref = {nm: score_matrix(probs, nm, seed=0) for nm in SCORE_FNS}
+        for size in (1, 7, 13, 97, len(probs) - 1):      # awkward, non-dividing blocks
+            B.CHUNK_ROWS = size
+            for nm in SCORE_FNS:
+                got = score_matrix(probs, nm, seed=0)
+                assert np.array_equal(got, ref[nm]), (nm, size)
+    finally:
+        B.CHUNK_ROWS = keep
+
+
+def test_scores_do_not_upcast_and_so_stay_within_memory(probs):
+    """dtype is preserved rather than promoted to float64.
+
+    Upcasting a float32 dump doubled every full-size intermediate: at 250k x 1000 the peak
+    was 10 GB for APS and 16 GB for SAPS against Colab's ~12.7 GB, which is how notebook 12
+    ran out of RAM while notebook 09 -- THR only -- did not. Preserving float32 also
+    matches what the reference implementation computes in when handed a float32 dump.
+    """
+    p32 = probs.astype(np.float32)
+    for nm in SCORE_FNS:
+        assert score_matrix(p32, nm, seed=0).dtype == np.float32, nm
+        assert score_matrix(probs, nm, seed=0).dtype == probs.dtype, nm
+
+
 def test_thr_is_still_the_plain_one_minus_probability(probs):
     assert np.allclose(score_matrix(probs, "thr"), thr_lac(probs))
 

@@ -644,6 +644,12 @@ def run(args) -> dict:
                                              knn_ks=knn_ks, log_prevalence_from=cnt_full)
         names = list(names)
 
+    # S_all has served its purpose: every slice that needs it has been taken, and on the
+    # primary dump it is a full gigabyte. Released here rather than at function exit,
+    # because everything below -- the shrinkage search, both tables, the competitors --
+    # allocates, and this is the largest single array that no longer has a reader.
+    del S_all
+
     q_global = float(np.quantile(S_cal[np.arange(len(y_cal)), y_cal], 1 - args.alpha))
     n_per_class = np.bincount(y_cal, minlength=K)
     delta_obs = np.full(K, np.nan)
