@@ -193,11 +193,19 @@ def _bin_coverage(S_sub, y_sub, thresholds, bins, id_of_class):
 
 # ------------------------------------------------------------------- evaluation
 def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None,
-               alpha=0.10):
+               alpha=0.10, competitors=None):
     """Equity of PCC vs the marginal threshold, inside one label space, matched size.
 
     Per-class statistics that the pre-registration says are unmeasurable on this slice are
     moved to `withheld_unmeasurable`: still computed, never allowed to decide anything.
+
+    `competitors` maps a published method's name to a list of `(label, thresholds_full)`
+    candidates. Every one of them is a PER-CLASS THRESHOLD VECTOR, which is the whole
+    reason they can be compared honestly: they go through the same size-matching shift and
+    the same statistics as PCC, instead of having their own heterogeneous metric dicts
+    scraped for keys that happen to contain "cov". When a method offers several
+    hyperparameters, the BEST candidate is taken -- oracle-tuning the competitor, which is
+    the conservative direction for us, and recorded as such.
     """
     S_sub, y_sub, K_sub, ids = restrict_to_classes(S_ev, y_ev, classes)
     base = np.full(K_sub, float(q_global))
@@ -371,59 +379,142 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
 
     primary = stat if meas["per_class_stats_reportable"] else meas["primary_stat"]
     out["primary_stat"] = primary
+
+    # --- published competitors, on identical footing -----------------------------
+    if competitors:
+        out["competitors"], out["delta_competitors"] = {}, {}
+        for nm, cands in competitors.items():
+            best = None
+            for label, thr_full in cands:
+                t_c = np.asarray(thr_full, float)[ids]
+                n_undef = int((~np.isfinite(t_c)).sum())
+                if n_undef:
+                    # a non-finite threshold means "include every label", which is what
+                    # classwise CP and RC3P emit for a class with no calibration rows.
+                    # The frozen fallback policy sends those to the marginal threshold;
+                    # substituting it here is that policy, applied per class.
+                    t_c = np.where(np.isfinite(t_c), t_c, float(q_global))
+                e_c = _abs(t_c, equity_at_matched_size(S_sub, y_sub, K_sub, t_c, target))
+                if primary in e_c:
+                    e_c["selected_by"] = primary
+                elif "worst" in e_c:
+                    e_c["selected_by"] = "worst"
+                key = (e_c.get(e_c["selected_by"], -np.inf), -n_undef)
+                e_c["hyperparameter"] = label
+                # THE number that makes the held-out comparison legible: how many classes
+                # the method could not give a threshold to at all. Worst-class coverage is
+                # decided by the classes a method fails on, not the ones it handles, so a
+                # method can hand 12 of 18 held-out classes an informative threshold and
+                # still score exactly 0.0000.
+                e_c["n_classes_undefined"] = n_undef
+                e_c["frac_classes_undefined"] = float(n_undef) / max(1, K_sub)
+                if best is None or key > best[0]:
+                    best = (key, e_c)
+            if best is None:
+                continue
+            e_c = best[1]
+            out["competitors"][nm] = e_c
+            out["delta_competitors"][nm] = {
+                k: e_c[k] - e_base[k] for k in e_base
+                if k not in ("shift", "size_strata") and k in e_c}
+            out["competitors"][nm]["n_candidates"] = len(cands)
     out["pass"] = (bool(out["delta"][primary] > 0) if primary in out["delta"] else None)
     return out
 
 
-def _baselines_table1(ccc_root, S_cal, y_cal, S_ev, y_ev, seen, alpha, seed):
-    """Author-implemented baselines, restricted to the SEEN label space.
+# Bandwidth is a TUNING AXIS for fuzzy classwise CP, not a constant: the release sweeps
+# 1e-30 ... 1000 and picks off a Pareto plot. A small geometric subset is swept here and
+# the best is kept, which hands the competitor its best shot -- the conservative direction.
+FUZZY_BANDWIDTHS = (1e-5, 1e-3, 1e-2, 1e-1, 10.0)
 
-    Only Table 1: at n_y = 0 every one of these falls back to the marginal threshold
-    (frozen in reports/fallback_policy.md), so Table 2's `uncorrected` row already IS
-    their row and calling them there would only restate it.
+
+def _competitor_thresholds(ltc_root, S_cal, y_cal, K, alpha, seed, P_cal=None,
+                           class_counts=None, tmp_dir=None):
+    """Per-class threshold vectors from the published methods, over the FULL label space.
+
+    The calibration slice contains rows only for SEEN classes, but the score matrix keeps
+    all K columns, so each method decides for itself what a class with zero calibration
+    rows gets. That is the point: `reports/fallback_policy.md` was frozen on 2026-07-24
+    predicting exactly what each one would do, and the released code agrees --
+
+      * classwise CP  -> qhat = +inf (set = all labels); policy sends it to q_global
+      * clustered CP  -> null cluster -> the method's own marginal fallback
+      * RC3P          -> warns "no calibration examples", qhat = +inf; policy -> q_global
+      * fuzzy CP      -> similarity-weighted over seen classes, sd = bandwidth/(n_k+1),
+                         whose "+1 to account for classes with 0 examples" is the
+                         authors' own comment. This is the ONE published method that is
+                         genuinely defined at n_y = 0, which is why AGENTS.md §7 flags it
+                         as the most dangerous competitor and why it is the real test.
+
+    Non-finite entries are left as they come; `_one_table` applies the frozen policy.
     """
     import importlib
     import sys
-    if ccc_root not in sys.path:
-        sys.path.insert(0, ccc_root)
+    if ltc_root not in sys.path:
+        sys.path.insert(0, ltc_root)
     importlib.invalidate_caches()
     cu = importlib.import_module("utils.conformal_utils")
 
-    Sc, yc, Kc, _ = restrict_to_classes(S_cal, y_cal, seen)
-    Se, ye, Ke, _ = restrict_to_classes(S_ev, y_ev, seen)
-    out = {}
-    calls = {
-        "standard_conformal": lambda: cu.standard_conformal(Sc, yc, Se, ye, alpha),
-        "classwise_conformal": lambda: cu.classwise_conformal(Sc, yc, Se, ye, alpha, Kc),
-        "clustered_conformal": lambda: cu.clustered_conformal(
-            Sc, yc, alpha, val_scores_all=Se, val_labels=ye, seed=seed),
-    }
-    for nm, fn in calls.items():
+    out, errs = {}, {}
+
+    def _try(name, fn, label="-"):
         try:
-            parts = list(fn())
-        except Exception as e:                                   # noqa: BLE001
-            out[nm] = {"error": type(e).__name__ + ": " + str(e)}
-            continue
-        rec = {}
-        for part in parts:
-            if not isinstance(part, dict):
-                continue
-            is_cov = any("cov" in str(k).lower() for k in part)
-            for k, v in part.items():
-                kl = str(k).lower()
-                if isinstance(v, (int, float, np.floating, np.integer)):
-                    if "cov" in kl and "gap" in kl:
-                        rec["mean_class_cov_gap"] = float(v)
-                    elif "max_gap" in kl:
-                        rec["max_gap"] = float(v)
-                    elif "undercovered" in kl:
-                        rec["very_undercovered"] = float(v)
-                    elif kl == "marginal_cov":
-                        rec["marginal_cov"] = float(v)
-                    elif kl == "mean" and not is_cov:
-                        rec["avg_set_size"] = float(v)
-        out[nm] = rec
-    return out
+            q = np.atleast_1d(np.asarray(fn(), dtype=float)).ravel()
+        except Exception as e:                                       # noqa: BLE001
+            errs[name] = type(e).__name__ + ": " + str(e)[:200]
+            return
+        if q.size == 1:
+            q = np.full(K, float(q[0]))
+        if q.size != K:
+            errs[name] = "returned {} thresholds, expected {}".format(q.size, K)
+            return
+        out.setdefault(name, []).append((label, q))
+
+    _try("standard_conformal",
+         lambda: cu.compute_qhat(S_cal, y_cal, alpha))
+    _try("classwise_conformal",
+         lambda: cu.compute_class_specific_qhats(S_cal, y_cal, K, alpha))
+    _try("clustered_conformal",
+         lambda: cu.clustered_conformal(S_cal, y_cal, alpha, seed=seed))
+    # The `rarity` projection embeds a class by its TRAIN prevalence, which exists without
+    # any calibration row -- so it is the one projection that can give a held-out class an
+    # INFORMATIVE position rather than a degenerate one. With use_train=False it would read
+    # counts off the calibration labels, where every held-out class is zero and the
+    # embedding collapses. Materialising the dump's true counts is therefore what makes
+    # this competitor strong, and a strong version is the one worth beating: it is the
+    # direct analogue of PCC's own log_prevalence feature, which the E4 ablation says
+    # carries no signal on its own. That makes this a falsifiable prediction, not a
+    # formality.
+    rarity_path = None
+    if class_counts is not None and tmp_dir is not None:
+        cnt = np.asarray(class_counts, int)
+        rarity_path = str(Path(tmp_dir) / "ltc_train_labels.npy")
+        np.save(rarity_path, np.repeat(np.arange(len(cnt)), cnt))
+
+    projections = ["quantile", "random"] + (["rarity"] if rarity_path else [])
+    for bw in FUZZY_BANDWIDTHS:
+        for proj in projections:
+            par = {"bandwidth": bw}
+            if proj == "rarity":
+                # "dataset" is required even though train_labels_path is supplied: their
+                # default argument is an f-string that reads params["dataset"], and Python
+                # evaluates it before .get() can ignore it.
+                par.update({"use_train": True, "train_labels_path": rarity_path,
+                            "dataset": "pcc"})
+
+            def _call(p=proj, pa=par):
+                # their rarity branch jitters the embedding with the LEGACY global RNG,
+                # so seeding it here is what makes this reproducible at all
+                np.random.seed(seed)
+                return cu.fuzzy_classwise_CP(S_cal, y_cal, alpha, projection=p,
+                                             mode="weight", params=pa)[0]
+
+            _try("fuzzy_classwise_" + proj, _call,
+                 label="bandwidth={}".format(bw))
+    if P_cal is not None:
+        _try("rc3p",
+             lambda: cu.compute_rc3p_params(P_cal, S_cal, y_cal, alpha)[0])
+    return out, errs
 
 
 # ------------------------------------------------------------------------- main
@@ -620,19 +711,36 @@ def run(args) -> dict:
                 "lambda_curve_train": model.lambda_selection["curve"],
                 "features": list(model.gtheta.feature_names),
                 "provenance": model.provenance},
-        "table_1_seen": _one_table(S_ev, y_ev, seen, q_global, t, args.stat,
-                                   counts=cnt_full, alpha=args.alpha),
     }
-    if len(heldout):
-        res["table_2_heldout"] = _one_table(S_ev, y_ev, heldout, q_global, t, args.stat,
-                                            counts=cnt_full, alpha=args.alpha)
 
+    # Published competitors, fitted ONCE over the full label space and then read inside
+    # both tables. Fitting per table would let each of them see a different calibration
+    # slice, which is not what any of them does in deployment.
+    comps, comp_errs = {}, {}
     if args.ccc_root:
         try:
-            res["baselines_table_1"] = _baselines_table1(
-                args.ccc_root, S_cal, y_cal, S_ev, y_ev, seen, args.alpha, args.seed)
-        except Exception as e:                                   # noqa: BLE001
-            res["baselines_table_1"] = {"error": type(e).__name__ + ": " + str(e)}
+            comps, comp_errs = _competitor_thresholds(
+                args.ccc_root, S_cal, y_cal, K, args.alpha, args.seed,
+                P_cal=(1.0 - S_cal) if score == "thr" else None,
+                class_counts=cnt_full, tmp_dir=args.reports_dir)
+        except Exception as e:                                       # noqa: BLE001
+            comp_errs = {"_import": type(e).__name__ + ": " + str(e)[:300]}
+    res["competitor_errors"] = comp_errs
+    res["competitor_candidates"] = {k: [lb for lb, _ in v] for k, v in comps.items()}
+    # RC3P needs the raw softmax as well as the score matrix, and softmax is only
+    # recoverable from the score under THR. Said out loud rather than skipped in silence.
+    if score != "thr":
+        res["competitor_notes"] = ("rc3p omitted: it needs raw softmax, which is not "
+                                   "recoverable from the {} score".format(score))
+
+    res["table_1_seen"] = _one_table(S_ev, y_ev, seen, q_global, t, args.stat,
+                                     counts=cnt_full, alpha=args.alpha,
+                                     competitors=comps)
+    if len(heldout):
+        res["table_2_heldout"] = _one_table(S_ev, y_ev, heldout, q_global, t, args.stat,
+                                            counts=cnt_full, alpha=args.alpha,
+                                            competitors=comps)
+
     return res
 
 
