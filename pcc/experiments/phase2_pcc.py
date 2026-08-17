@@ -42,7 +42,8 @@ from pcc.descriptors.head_weights import build_head_descriptors
 from pcc.descriptors.output_space import build_output_descriptors
 from pcc.eval.conformal import restrict_to_classes
 from pcc.eval.metrics import per_class_coverage
-from pcc.eval.setsize import avg_set_size_at_shift, equity_at_matched_size
+from pcc.eval.setsize import (avg_set_size_at_shift, equity_at_matched_size,
+                              select_shrinkage)
 from pcc.eval.stats import mean_ci
 from pcc.method.pcc import fit_pcc
 from pcc.scores.base import SCORE_FNS, score_matrix, thr_lac
@@ -258,18 +259,42 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
     e_base = _abs(base, e_base)
     e_pcc = _abs(t_pcc, e_pcc)
 
-    # ORACLE CEILING -- the number that gives +0.0249 a scale. It uses EVAL labels, so it
-    # is unachievable by construction; it exists only to say how much of the available
-    # room the method took. Without it the headline has no denominator, and nb05 showed
-    # the room can be near zero, in which case any figure is unreadable.
+    # ORACLE CEILING -- and it has to be SHRUNK to actually be a ceiling.
+    #
+    # The first version took per-class quantiles of the true-class scores straight from
+    # the EVAL labels and called that the ceiling. It is not one: PCC measured +0.0588
+    # against an "oracle" of -0.0058 on the same run, and a method beating its own upper
+    # bound means the bound was mislabelled. The reason is that raw per-class quantiles
+    # ARE lambda=1, and lambda=1 is catastrophic for worst-class at matched size -- the
+    # lam1 ablation measures -0.58 on this very dump. So the unshrunk oracle is not
+    # "perfect delta", it is "perfect delta used in the worst possible way".
+    #
+    # The honest ceiling for this family is the BEST shrinkage of a perfect delta. It
+    # still uses EVAL labels twice over (for delta and for lambda), so it remains
+    # unachievable and remains a ceiling rather than a method -- just one that PCC
+    # cannot exceed by construction, which is what a ceiling has to mean.
     s_true = S_sub[rows_i, y_sub]
-    q_or = np.full(K_sub, float(q_global))
+    q_raw = np.full(K_sub, float(q_global))
     for k in range(K_sub):
         m = y_sub == k
         if m.sum() >= 5:
-            q_or[k] = float(np.quantile(s_true[m], tgt))
+            q_raw[k] = float(np.quantile(s_true[m], tgt))
+    d_or = q_raw - float(q_global)
+    # select_shrinkage cannot optimise a BIN statistic, so in regime B the ceiling's
+    # lambda is chosen on per-class `worst` even though the arms are read on bin_worst.
+    # That is acceptable for a ceiling -- it is not a method and carries no guarantee --
+    # but which statistic chose lambda has to be on the record, not inferred.
+    or_stat = stat if meas["per_class_stats_reportable"] else "worst"
+    or_sel = select_shrinkage(S_sub, y_sub, K_sub, q_global, d_or, target, stat=or_stat)
+    q_or = float(q_global) + or_sel["lambda"] * d_or
     e_or = equity_at_matched_size(S_sub, y_sub, K_sub, q_or, target)
     e_or = _abs(q_or, e_or)
+    e_or["oracle_lambda"] = float(or_sel["lambda"])
+    e_or["oracle_lambda_curve"] = or_sel["curve"]
+    e_or["oracle_lambda_stat"] = or_stat
+    # the unshrunk version is kept because it is what the lam1 ablation predicts, and
+    # seeing the two side by side is the clearest statement of why shrinkage exists
+    e_unsh = _abs(q_raw, equity_at_matched_size(S_sub, y_sub, K_sub, q_raw, target))
 
     # UNMATCHED thresholds, taken exactly as the method emits them.
     #
@@ -303,6 +328,10 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
                   if k not in ("shift", "size_strata")},
         "delta_oracle": {k: e_or[k] - e_base[k] for k in e_base
                          if k not in ("shift", "size_strata")},
+        # the unshrunk oracle: perfect delta at lambda=1, i.e. the lam1 ablation with a
+        # perfect predictor. Reported so "why shrink?" is answered by a number.
+        "delta_oracle_unshrunk": {k: e_unsh[k] - e_base[k] for k in e_base
+                                  if k not in ("shift", "size_strata")},
         "size_matched": bool(abs(e_pcc["avg_set_size"] - e_base["avg_set_size"]) < 1e-2),
         "raw_unmatched": {"uncorrected": raw_base, "pcc": raw_pcc,
                           "delta": {k: raw_pcc[k] - raw_base[k] for k in raw_base}},
@@ -315,14 +344,26 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
         sh_pcc = e_pcc["shift"]
         cb = _bin_coverage(S_sub, y_sub, base + sh_base, bins, id_of_class)
         cp = _bin_coverage(S_sub, y_sub, t_pcc + sh_pcc, bins, id_of_class)
+        # The oracle needs the SAME statistic as the arms it is supposed to bound. Without
+        # this the ceiling has no bin_worst, so "how much of the available room did we
+        # take" is unanswerable in regime B -- which is Pl@ntNet and iNat, two of the
+        # three datasets. The ceiling was only ever readable on ImageNet.
+        co = _bin_coverage(S_sub, y_sub, q_or + e_or["shift"], bins, id_of_class)
+        cu = _bin_coverage(S_sub, y_sub, q_raw + e_unsh["shift"], bins, id_of_class)
         out["bins"] = {"n_bins": len(bins),
                        "classes_per_bin": [len(b) for b in bins],
                        "uncorrected_bin_coverage": cb,
-                       "pcc_bin_coverage": cp}
+                       "pcc_bin_coverage": cp,
+                       "oracle_bin_coverage": co}
         if cb and cp:
             out["uncorrected"]["bin_worst"] = float(min(cb))
             out["pcc"]["bin_worst"] = float(min(cp))
             out["delta"]["bin_worst"] = float(min(cp) - min(cb))
+        if cb and co:
+            out["oracle"]["bin_worst"] = float(min(co))
+            out["delta_oracle"]["bin_worst"] = float(min(co) - min(cb))
+        if cb and cu:
+            out["delta_oracle_unshrunk"]["bin_worst"] = float(min(cu) - min(cb))
         out["withheld_unmeasurable"] = {
             k: {"uncorrected": e_base.get(k), "pcc": e_pcc.get(k),
                 "delta": (e_pcc.get(k, np.nan) - e_base.get(k, np.nan))}

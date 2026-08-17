@@ -390,6 +390,35 @@ def test_recalibration_ablation_changes_the_offset(world):
     assert on["ablation"]["recalibrate"] is True
 
 
+def test_oracle_is_actually_a_ceiling_because_it_is_shrunk(world):
+    """A bound the method can beat is not a bound.
+
+    The first oracle took per-class quantiles of the true-class scores straight from the
+    EVAL labels. But raw per-class quantiles ARE lambda=1, and lambda=1 is catastrophic
+    for worst-class at matched size -- the lam1 ablation measures about -0.58 on the real
+    dump. So the unshrunk "oracle" is perfect delta used in the worst possible way, and
+    on one real run PCC scored +0.0588 against it at -0.0058. The ceiling has to be the
+    BEST shrinkage of a perfect delta, which PCC cannot exceed by construction.
+    """
+    res = drv.run(_args(world))
+    t2 = res["table_2_heldout"]
+    st = t2["primary_stat"]
+    ceil_, got = t2["delta_oracle"][st], t2["delta"][st]
+    assert ceil_ >= got - 1e-9, "PCC {:+.4f} exceeds its ceiling {:+.4f}".format(got, ceil_)
+
+    # the shrinkage that defines the ceiling is recorded, and its curve with it
+    lam = t2["oracle"]["oracle_lambda"]
+    curve = t2["oracle"]["oracle_lambda_curve"]
+    sel_stat = t2["oracle"]["oracle_lambda_stat"]
+    assert 0.0 <= lam <= 1.0
+    # the curve is over the statistic lambda was actually selected on, which in regime B
+    # is per-class `worst` even when the arms are read on bin_worst
+    assert max(curve.values()) == pytest.approx(t2["oracle"][sel_stat], abs=1e-9)
+
+    # and the unshrunk version is kept, so "why shrink?" is answerable with a number
+    assert t2["delta_oracle_unshrunk"][st] <= t2["delta_oracle"][st] + 1e-9
+
+
 def test_every_score_function_runs_end_to_end_and_changes_the_answer(world):
     """delta_y is defined on the score distribution, so the score is an axis, not a
     constant. The driver hardcoded THR/LAC until now, which meant every PCC number ever
