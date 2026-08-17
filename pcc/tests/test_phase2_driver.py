@@ -390,6 +390,28 @@ def test_recalibration_ablation_changes_the_offset(world):
     assert on["ablation"]["recalibrate"] is True
 
 
+def test_cal_depth_reports_whether_the_cap_actually_bound(world):
+    """A depth above what the slice holds is not a sweep point, and must say so.
+
+    The first depth sweep asked for 100 and 200 rows per class on a slice holding 75.
+    Both returned bit-identical numbers, which read as "the curve saturates" when they
+    meant "nothing was cut" -- two of five points were not measurements at all. The
+    driver now records how many classes the cap bound, so an unbinding cap is visible
+    in the report rather than inferred later from suspiciously equal results.
+    """
+    deep = drv.run(_args(world, cal_depth=10_000))       # far above anything available
+    assert deep["ablation"]["cal_depth_classes_capped"] == 0
+    assert deep["ablation"]["cal_depth_binding"] is False
+    # and it must be identical to running with no cap at all, which is the whole problem
+    none = drv.run(_args(world))
+    assert deep["split_sizes"]["cal_seen"] == none["split_sizes"]["cal_seen"]
+
+    tight = drv.run(_args(world, cal_depth=15))
+    assert tight["ablation"]["cal_depth_binding"] is True
+    assert tight["ablation"]["cal_depth_classes_capped"] == tight["n_seen"]
+    assert tight["split_sizes"]["cal_seen"] < none["split_sizes"]["cal_seen"]
+
+
 def test_recalibration_is_invisible_at_matched_size_and_visible_raw(world):
     """The E3 ablation cannot be read off the matched-size tables, and that is a fact
     about the metric rather than about the method.

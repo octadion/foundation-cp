@@ -420,13 +420,23 @@ def run(args) -> dict:
     # and the only thing that separated them was rows per class (76 vs 20 vs 12 vs 3), but
     # that was confounded with dataset and backbone. Capping depth inside ONE dump turns
     # an accidental cross-dataset observation into a designed curve.
+    #
+    # A cap ABOVE the rows the slice actually holds is not a sweep point -- it is the
+    # same run under a different label. The first sweep asked for depths 100 and 200 on
+    # a slice with 75 rows per class and got two bit-identical results that read as "the
+    # curve has saturated" when they meant "nothing was cut". So how many classes the cap
+    # actually bound is recorded, and a cap that binds nothing is reported as such.
+    cap_bound = 0
     if getattr(args, "cal_depth", None):
         rr = np.random.default_rng(args.seed + 777)
         keep = []
         for c in seen:
             idx = i_cal_seen[y_all[i_cal_seen] == c]
-            keep.append(rr.choice(idx, int(args.cal_depth), replace=False)
-                        if len(idx) > args.cal_depth else idx)
+            if len(idx) > args.cal_depth:
+                cap_bound += 1
+                keep.append(rr.choice(idx, int(args.cal_depth), replace=False))
+            else:
+                keep.append(idx)
         i_cal_seen = np.sort(np.concatenate(keep)) if keep else i_cal_seen
 
     S_desc = thr_lac(S_all[i_desc])
@@ -537,6 +547,8 @@ def run(args) -> dict:
         "q_global": q_global,
         "knn_ks_used": list(knn_ks), "knn_ks_dropped_K_too_small": list(knn_dropped),
         "ablation": {"cal_depth": getattr(args, "cal_depth", None),
+                     "cal_depth_classes_capped": int(cap_bound),
+                     "cal_depth_binding": bool(cap_bound > 0.5 * len(seen)),
                      "lam_override": getattr(args, "lam_override", None),
                      "n_star_rule": getattr(args, "n_star_rule", "oos"),
                      "recalibrate": not getattr(args, "no_recalibrate", False),
