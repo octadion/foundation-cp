@@ -220,10 +220,9 @@ lebih kecil dari hasil CCC:
 | `head_vit` (**eksogen**) | **tepat +0,0000** — λ=0 di 11 dari 12 konfigurasi |
 | ruang-output | +0,0011 … +0,0086 |
 
-### Pola yang muncul setelah empat setting, dan ia monoton
+### Pola yang muncul setelah empat setting — dan koreksinya pada 2026-08-17
 
-Yang membedakan bukan dataset, bukan backbone, bukan keluarga φ. **Kedalaman kalibrasi
-per kelas:**
+Empat setting pertama tampak memberi satu penjelasan tunggal yang rapi:
 
 | Setting | baris CAL / kelas | Tabel 2 (`n_y = 0`) |
 |---|---|---|
@@ -232,31 +231,64 @@ per kelas:**
 | Pl@ntNet | ~12 | +0,0269, CI memuat nol |
 | iNat-2018 | ~3 | tepat +0,0000 |
 
-Satu setting yang berhasil punya **tiga sampai dua puluh lima kali** lebih banyak data
-kalibrasi per kelas daripada yang lain. Itu penjelasan tunggal yang konsisten dengan
-keempatnya, dan ia terukur — bukan dugaan.
+Kesimpulan yang ditulis saat itu: **kedalaman kalibrasi per kelas adalah pembedanya**, dan
+di bawah ~26 baris/kelas efeknya hilang ke derau.
 
-Mekanismenya masuk akal: g_θ dilatih pada δ_y kelas TRAIN, dan δ_y itu sendiri kuantil
-empiris dari `n_cal` sampel. Kalau `n_cal` tipis, targetnya berderau, `r_δ` turun,
-plafonnya turun, dan seleksi λ menolak bertindak. Rantainya sama dengan yang menjelaskan
-kegagalan α kecil (`r_δ` 0,829 → 0,738 → 0,620): **δ_y yang berderau, apa pun sebabnya,
-menutup ruang gerak metodenya.**
+**Kesimpulan itu terbantah oleh sapuan kedalaman yang dirancang untuk mengujinya.**
+
+Notebook 09 fase A memotong kedalaman kalibrasi di DALAM satu dump (CCC ImageNet, 10 seed,
+φ kepala, α=0,10), sehingga dataset, backbone, dan keluarga φ semuanya konstan:
+
+| `n_cal` ≤ | Δ worst-class | plafon oracle | bagian plafon terpakai |
+|---|---|---|---|
+| 10 | **+0,0329** [+0,0157, +0,0501] | +0,1281 | 26% |
+| 25 | +0,0301 [+0,0107, +0,0494] | +0,1319 | 23% |
+| 50 | +0,0412 [+0,0212, +0,0612] | +0,1286 | 32% |
+| 100 | +0,0598 [+0,0321, +0,0875] | +0,1295 | **46%** |
+| 175 | +0,0588 [+0,0313, +0,0864] | +0,1282 | 46% |
+
+**Pada 10 baris kalibrasi per kelas, efeknya positif dan CI-nya mengecualikan nol.** Itu
+lebih tipis daripada Pl@ntNet (~12) dan hanya tiga kali iNat (~3), tetapi di sini ia
+bekerja. Jadi kedalaman kalibrasi **bukan gerbang** yang menjelaskan kegagalan lintas
+dataset. Ia **dosis**: ia mengatur seberapa besar bagian plafon yang terambil (≈24% pada
+10–25 baris, 46% pada 100+), bukan apakah metodenya hidup atau mati.
+
+Plafonnya sendiri **datar** di seluruh sapuan, +0,1281 sampai +0,1319. Itu masuk akal —
+plafon dihitung dari label EVAL, jadi ia tidak peduli setipis apa irisan kalibrasinya. Dan
+karena ia datar, kenaikan 26% → 46% seluruhnya **PCC yang membaik**, bukan ruang yang
+melebar. Tanpa plafon yang benar, ini tidak bisa dibedakan.
+
+### Kalau bukan kedalaman kalibrasi, lalu apa?
+
+Sapuan itu menahan konstan dua hal yang justru berbeda tajam di Pl@ntNet dan iNat:
+
+1. **Kedalaman EVALUASI, yaitu regime keterukuran.** CCC ImageNet punya 75–175 baris
+   evaluasi per kelas (regime A, `worst` terukur). Pl@ntNet punya median 3 dan iNat 2
+   (regime B), di mana statistik primernya `bin_worst` — jauh lebih kasar, dan sebuah
+   kelas dengan 2 baris hanya bisa bercakupan 0, 0,5, atau 1.
+2. **Keluarga φ.** CCC memakai φ kepala; Pl@ntNet dan iNat hanya pernah dijalankan dengan
+   φ ruang-output, dan keluarga itu juga mendekati nol di ImageNet.
+
+Keduanya **belum pernah diisolasi sebagai faktor tunggal**. Jadi status yang jujur adalah:
+kedalaman kalibrasi terbukti mengatur besarnya efek; penyebab kegagalan di dataset
+ekor-panjang **masih terbuka**, dengan dua kandidat terukur di atas.
 
 ### Konsekuensi jujur untuk paper
 
-Klaim ekstrapolasi paling menarik justru di setting **label langka** — dan di sanalah ia
-**tidak bekerja**. Setting yang berhasil punya 76 sampel kalibrasi per kelas, yang bukan
-setting langka-label.
-
-Itu ketegangan inti proyek ini, sekarang **terukur pada empat setting**, bukan
-diperdebatkan. Ia harus ditulis sebagai temuan utama, bukan sebagai batasan di kaki
-halaman:
+Klaim yang boleh ditulis sekarang lebih sempit dari yang sebelumnya ditulis di sini,
+tetapi bentuknya lebih baik — kurva dosis yang dirancang, bukan korelasi lintas-dataset
+yang kebetulan:
 
 > Koreksi kelas terprediksi memperbaiki ekuitas worst-class pada kelas tanpa sampel
-> kalibrasi **bila kelas-kelas lain punya kalibrasi yang cukup dalam** (≈76 baris/kelas
-> pada ImageNet). Di bawah ~26 baris/kelas efeknya hilang ke dalam derau di empat dataset
-> dan dua backbone. Prasyaratnya bukan jumlah kelas, bukan arsitektur, dan bukan pilihan
-> deskriptor — melainkan **kedalaman kalibrasi kelas yang dipakai melatih prediktornya.**
+> kalibrasi sama sekali, dan besar perbaikannya naik dengan kedalaman kalibrasi kelas lain:
+> dari 26% plafon oracle pada 10 baris/kelas menjadi 46% pada 100. Ia **tidak** berlaku di
+> dua dataset ekor-panjang yang diuji, dan sapuan kedalaman menunjukkan kedalaman
+> kalibrasi bukan penyebabnya — dua kandidat yang tersisa adalah kedalaman evaluasi
+> (keterukuran) dan keluarga deskriptor, keduanya belum diisolasi.
+
+Yang **tidak** boleh lagi ditulis: "di bawah ~26 baris/kelas efeknya hilang ke derau."
+Datanya sendiri membantahnya. Versi lama dibiarkan di atas dengan sengaja, sesuai kebiasaan
+proyek ini mencatat koreksi alih-alih menghapusnya.
 
 ### Yang TIDAK boleh disimpulkan dari run ini
 
@@ -272,6 +304,7 @@ terjawab oleh CCC ImageNet, di mana φ kepala memang eksogen dan hasilnya positi
 | δ_y terprediksi dari geometri kelas | **tertegakkan** (nb 05, dua keluarga φ) |
 | Koreksinya membeli ekuitas pada `n_y = 0` | **tertegakkan untuk φ kepala di ImageNet, α=0,10** |
 | Tidak dibayar oleh kelas ber-data | **tertegakkan** (Tabel 1 juga positif) |
-| Berlaku di dataset ekor-panjang | **TIDAK** — diuji 2026-08-16 setelah objektifnya dibuat terukur; CI memuat nol di Pl@ntNet, nol mutlak di iNat |
-| Mengalahkan Clustered CP pada ukuran tercocokkan | **belum diuji** |
+| Berlaku di dataset ekor-panjang | **TIDAK** — diuji 2026-08-16; CI memuat nol di Pl@ntNet, nol mutlak di iNat. Sebabnya **bukan** kedalaman kalibrasi (sapuan 2026-08-17 positif pada 10 baris/kelas); kandidat tersisa: kedalaman evaluasi dan keluarga φ |
+| Mengalahkan Clustered CP pada ukuran tercocokkan | pesaing terpasang 2026-08-17 sebagai vektor ambang per-kelas; angkanya dari notebook 12 |
+| Besarnya efek naik dengan kedalaman kalibrasi | **tertegakkan** — 26% → 46% plafon, 10 seed, CI mengecualikan nol di kelima titik |
 | Berlaku lintas α | **tidak** pada α=0,05 sejauh ini |

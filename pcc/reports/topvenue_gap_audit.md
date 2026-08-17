@@ -1,5 +1,13 @@
 # Audit kesiapan top venue — apa yang sudah, apa yang kurang
 
+> **STATUS 2026-08-17.** Blok C (metrik) nol → **delapan**, blok D (statistik) satu →
+> **lima**, blok E (ablasi) nol → **lima**, A3 kosong → **90 kondisi ImageNet-C**, A4
+> THR-saja → **empat skor** (dua direproduksi lawan kode penulisnya), A2 dua → **tiga
+> backbone** (top-1 cocok sampai empat desimal), B nol → **enam pesaing terpasang sebagai
+> vektor ambang per-kelas**, F2 dan F4 → **ditulis** di `guarantees_and_exchangeability.md`.
+> Yang tersisa: reproduksi §7 lawan angka terbit, SAPS/Class-Similarity/TACP/CFCP, G1, G4.
+> Rincian per baris di bawah; tanda ✅/❌ aslinya dibiarkan agar perubahannya terbaca.
+
 **Ditulis 2026-08-16, sebelum menulis kode tambahan apa pun.** Tujuannya supaya cakupan
 eksperimen diputuskan sekali di depan, bukan ditambal tiap kali reviewer imajiner muncul.
 
@@ -40,12 +48,12 @@ dalam seluruh daftar.
 
 | Metode | Kode | Status |
 |---|---|---|
-| standard / classwise / Clustered CP | repo CCC | ✅ dipanggil, ❌ belum direproduksi |
+| standard / classwise / Clustered CP | repo LTC | ✅ terpasang sebagai **vektor ambang per-kelas**, dievaluasi lewat mesin yang sama dengan PCC; ❌ §7 reproduksi lawan angka terbit masih belum |
 | APS, RAPS | repo CCC | ✅ dipanggil |
-| **PAS + Interp-Q** | repo LTC (sudah ada) | ❌ — CPU |
-| **Fuzzy Classwise CP** | repo LTC (sudah ada) | ❌ — §7 sebut **paling berbahaya** |
-| **SAPS** | fungsi skor | ❌ — CPU, murah |
-| **RC3P** | github | ❌ — CPU |
+| **PAS + Interp-Q** | ~~repo LTC~~ | ❌ **tidak ada di repo itu** — diverifikasi 2026-08-17, klaim aslinya salah |
+| **Fuzzy Classwise CP** | repo LTC | ✅ **terpasang**, 3 proyeksi × 5 bandwidth, oracle-tuned untuk pesaingnya. Satu-satunya metode terbit yang terdefinisi di `n_y=0` — `sd = bandwidth/(n_k+1)`, komentar penulisnya sendiri menyebut kelas berjumlah nol |
+| **SAPS** | fungsi skor | ✅ **ditulis dari papernya** (tidak ada rujukan di rilis LTC), dikunci oleh properti; ❌ §7 reproduksi belum |
+| **RC3P** | **repo LTC** (`rc3p`, `compute_rc3p_params`) | ✅ **terpasang** — ternyata ada di repo yang sama, tidak perlu dicari di github |
 | Class similarity (Fargion) | github | ❌ — §7 sebut **paling berbahaya** |
 | Macro-coverage (Bhattacharyya) | rilis | ❌ |
 | TACP, CFCP | tidak ada kode | ❌ reimplementasi |
@@ -65,10 +73,10 @@ belum. Ini harus didahulukan di atas segalanya.
 | C2 | Average set size | ✅ |
 | C3 | Coverage gap vs target | ✅ baru ditambahkan |
 | C4 | Worst-class / bin-worst | ✅ |
-| C5 | **[BARU] SSCV** — size-stratified coverage violation | ❌ standar sejak RAPS (Angelopoulos 2021) |
-| C6 | **[BARU] Worst-slab coverage** | ❌ — **paper lamamu melaporkannya**; hilang di sini akan terlihat mundur |
-| C7 | **[BARU] %kelas di bawah target** | ❌ — ada di paper lama |
-| C8 | **[BARU] Plafon oracle di tabel utama** | ❌ ada di nb05 §6.4, hilang di Phase 2 |
+| C5 | **[BARU] SSCV** — size-stratified coverage violation | ✅ |
+| C6 | **[BARU] Worst-slab coverage** | ✅ |
+| C7 | **[BARU] %kelas di bawah target** | ✅ |
+| C8 | **[BARU] Plafon oracle di tabel utama** | ✅ dan **diperbaiki 2026-08-17**: versi tak-disusutkan bisa dilewati PCC, jadi bukan plafon. Sekarang penyusutan terbaik dari δ sempurna. Plus **[BARU] `frac_empty_sets`**, yang dituntut oleh fase pergeseran |
 
 **C6 dan C7 penting secara politis**, bukan cuma teknis: paper lamamu sudah melaporkannya,
 jadi reviewer yang sama akan menganggap hilangnya sebagai kemunduran.
@@ -112,9 +120,9 @@ kita tidak punya jawaban.
 | # | Item | Status |
 |---|---|---|
 | F1 | Pernyataan jaminan yang tepat | ✅ ada di docstring `pcc.py`, belum jadi proposisi |
-| F2 | **Bukti** marginal coverage terjaga | ⚠️ argumennya benar (satu derajat bebas di slice terpisah), belum ditulis formal |
+| F2 | **Bukti** marginal coverage terjaga | ✅ **Proposisi 1** di `guarantees_and_exchangeability.md`, 2026-08-17 |
 | F3 | **[BARU] Nyatakan yang TIDAK dijamin** | ✅ sudah eksplisit — **ini kekuatan**, reviewer i5Df menghukum paper lama karena overclaim |
-| F4 | **[BARU] Exchangeability di bawah shift** | ❌ wajib kalau ImageNet-C masuk — harus mengutip weighted conformal (Tibshirani) / adaptive CP (Gibbs–Candès) |
+| F4 | **[BARU] Exchangeability di bawah shift** | ✅ **ditulis** 2026-08-17, dengan alasan konkret mengapa weighted CP dan adaptive CP tidak dipakai, dan `frac_empty_sets` sebagai bukti kuantitatif jaminannya batal |
 
 **F4 tidak bisa dilewati.** Begitu ImageNet-C masuk, jaminan konformal tidak berlaku untuk
 metode mana pun, dan itu harus dijawab dengan literatur, bukan didiamkan.
