@@ -390,6 +390,29 @@ def test_recalibration_ablation_changes_the_offset(world):
     assert on["ablation"]["recalibrate"] is True
 
 
+def test_every_score_function_runs_end_to_end_and_changes_the_answer(world):
+    """delta_y is defined on the score distribution, so the score is an axis, not a
+    constant. The driver hardcoded THR/LAC until now, which meant every PCC number ever
+    produced used one score and the obvious robustness question had no answer.
+    """
+    out = {}
+    for name in ("thr", "aps", "raps", "saps"):
+        res = drv.run(_args(world, score=name))
+        assert res["score"] == name
+        out[name] = res["q_global"]
+        t2 = res["table_2_heldout"]
+        assert np.isfinite(t2["delta"][t2["primary_stat"]])
+    # a different score is a different geometry; identical quantiles would mean the
+    # flag is being ignored somewhere downstream
+    assert len(set(round(v, 9) for v in out.values())) == 4, out
+
+
+def test_score_axis_rejects_an_unknown_name(world):
+    with pytest.raises(ValueError) as ei:
+        drv.run(_args(world, score="nope"))
+    assert "unknown --score" in str(ei.value)
+
+
 def test_cal_depth_reports_whether_the_cap_actually_bound(world):
     """A depth above what the slice holds is not a sweep point, and must say so.
 

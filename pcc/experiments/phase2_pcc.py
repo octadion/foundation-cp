@@ -45,7 +45,7 @@ from pcc.eval.metrics import per_class_coverage
 from pcc.eval.setsize import avg_set_size_at_shift, equity_at_matched_size
 from pcc.eval.stats import mean_ci
 from pcc.method.pcc import fit_pcc
-from pcc.scores.base import thr_lac
+from pcc.scores.base import SCORE_FNS, score_matrix, thr_lac
 from pcc.utils.io import write_report
 from pcc.utils.seed import set_seed
 
@@ -439,18 +439,31 @@ def run(args) -> dict:
                 keep.append(idx)
         i_cal_seen = np.sort(np.concatenate(keep)) if keep else i_cal_seen
 
-    S_desc = thr_lac(S_all[i_desc])
-    S_cal = thr_lac(S_all[i_cal_seen])
+    # SCORE FUNCTION AS AN AXIS. Until now the driver hardcoded THR/LAC, so every PCC
+    # number ever produced used one score -- and delta_y is defined on the score
+    # distribution, so "does the correction survive a different score?" is a question a
+    # reviewer will ask before they ask for a sixteenth corruption. Same seed for all
+    # three slices: APS/RAPS/SAPS are randomized, and drawing fresh uniforms per slice
+    # would make calibration and evaluation disagree about the same point.
+    score = getattr(args, "score", "thr")
+    if score not in SCORE_FNS:
+        raise ValueError("unknown --score {!r}; available: {}".format(
+            score, sorted(SCORE_FNS)))
+
+    def _sc(P):
+        return score_matrix(P, score, seed=args.seed)
+
+    S_cal = _sc(S_all[i_cal_seen])
     y_cal = y_all[i_cal_seen]
     used_separate_eval = S_eval_sep is not None
     if S_eval_sep is None:
-        S_ev = thr_lac(S_all[i_eval])
+        S_ev = _sc(S_all[i_eval])
         y_ev = y_all[i_eval]
     else:
-        # thr_lac copies, so the raw eval dump must be released immediately -- on iNat it
-        # is 1.5 GB and keeping both alive is the difference between fitting in Colab's
-        # standard RAM and not.
-        S_ev = thr_lac(S_eval_sep[0])
+        # the score transform copies, so the raw eval dump must be released immediately
+        # -- on iNat it is 1.5 GB and keeping both alive is the difference between
+        # fitting in Colab's standard RAM and not.
+        S_ev = _sc(S_eval_sep[0])
         y_ev = S_eval_sep[1]
         S_eval_sep = (None, y_ev)
 
@@ -544,7 +557,7 @@ def run(args) -> dict:
                         "eval": int(len(y_ev))},
         "eval_from_separate_dump": bool(used_separate_eval),
         "subsample_frac_of_dump": float(len(y_all) / n_dump),
-        "q_global": q_global,
+        "q_global": q_global, "score": score,
         "knn_ks_used": list(knn_ks), "knn_ks_dropped_K_too_small": list(knn_dropped),
         "ablation": {"cal_depth": getattr(args, "cal_depth", None),
                      "cal_depth_classes_capped": int(cap_bound),
@@ -606,6 +619,8 @@ def verdict(res: dict, stat: str) -> str:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--score", default="thr", choices=sorted(SCORE_FNS),
+                   help="nonconformity score; delta_y is defined on ITS distribution")
     p.add_argument("--scores", required=True)
     p.add_argument("--labels", required=True)
     p.add_argument("--dataset", required=True)
