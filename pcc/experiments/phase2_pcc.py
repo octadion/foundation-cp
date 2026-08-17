@@ -494,6 +494,11 @@ def _competitor_thresholds(ltc_root, S_cal, y_cal, K, alpha, seed, P_cal=None,
          lambda: cu.compute_class_specific_qhats(S_cal, y_cal, K, alpha))
     _try("clustered_conformal",
          lambda: cu.clustered_conformal(S_cal, y_cal, alpha, seed=seed))
+    if P_cal is not None:
+        _try("rc3p",
+             lambda: cu.compute_rc3p_params(P_cal, S_cal, y_cal, alpha)[0])
+        del P_cal
+
     # The `rarity` projection embeds a class by its TRAIN prevalence, which exists without
     # any calibration row -- so it is the one projection that can give a held-out class an
     # INFORMATIVE position rather than a degenerate one. With use_train=False it would read
@@ -529,9 +534,11 @@ def _competitor_thresholds(ltc_root, S_cal, y_cal, K, alpha, seed, P_cal=None,
 
             _try("fuzzy_classwise_" + proj, _call,
                  label="bandwidth={}".format(bw))
-    if P_cal is not None:
-        _try("rc3p",
-             lambda: cu.compute_rc3p_params(P_cal, S_cal, y_cal, alpha)[0])
+    # rc3p first, then release the softmax copy. It is the only method that needs raw
+    # softmax, and it is also the heaviest: compute_ranks builds two int64 (n_cal x K)
+    # matrices and loops over every row in Python -- measured 68 s and +1.85 GB at 70k
+    # rows. Holding P_cal through the fifteen fuzzy fits afterwards would keep another
+    # 0.28 GB resident (0.7 GB on the full slice) for nothing.
     return out, errs
 
 
