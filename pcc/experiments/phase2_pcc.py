@@ -427,6 +427,18 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
 # the best is kept, which hands the competitor its best shot -- the conservative direction.
 FUZZY_BANDWIDTHS = (1e-5, 1e-3, 1e-2, 1e-1, 10.0)
 
+# MEASURED, not estimated: one fuzzy_classwise_CP fit takes ~99 s at K=1000 with 122k
+# calibration rows, because it walks all K classes and builds the per-row weight vector
+# with a Python list comprehension over every calibration row. Fifteen candidates (five
+# bandwidths x three projections) is therefore ~25 min PER RUN at that scale, and cost
+# scales with calibration rows -- on the ImageNet-C slices (20 rows/class) it is ~3 min.
+#
+# So competitors are opt-in per run rather than always on. Running them in every ablation
+# cell would cost tens of hours to restate the same comparison; they belong in the tables
+# that actually compare against published work.
+COMPETITOR_COST = ("~25 min/run at 122k cal rows and K=1000; ~3 min at 14k rows. "
+                   "Dominated by fuzzy_classwise_CP: 15 candidates x ~99 s.")
+
 
 def _competitor_thresholds(ltc_root, S_cal, y_cal, K, alpha, seed, P_cal=None,
                            class_counts=None, tmp_dir=None):
@@ -717,7 +729,8 @@ def run(args) -> dict:
     # both tables. Fitting per table would let each of them see a different calibration
     # slice, which is not what any of them does in deployment.
     comps, comp_errs = {}, {}
-    if args.ccc_root:
+    want_comp = getattr(args, "competitors", False)
+    if args.ccc_root and want_comp:
         try:
             comps, comp_errs = _competitor_thresholds(
                 args.ccc_root, S_cal, y_cal, K, args.alpha, args.seed,
@@ -726,6 +739,7 @@ def run(args) -> dict:
         except Exception as e:                                       # noqa: BLE001
             comp_errs = {"_import": type(e).__name__ + ": " + str(e)[:300]}
     res["competitor_errors"] = comp_errs
+    res["competitors_enabled"] = bool(args.ccc_root and want_comp)
     res["competitor_candidates"] = {k: [lb for lb, _ in v] for k, v in comps.items()}
     # RC3P needs the raw softmax as well as the score matrix, and softmax is only
     # recoverable from the score under THR. Said out loud rather than skipped in silence.
@@ -768,6 +782,8 @@ def verdict(res: dict, stat: str) -> str:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--competitors", action="store_true",
+                   help="fit the published competitors too. " + COMPETITOR_COST)
     p.add_argument("--score", default="thr", choices=sorted(SCORE_FNS),
                    help="nonconformity score; delta_y is defined on ITS distribution")
     p.add_argument("--scores", required=True)

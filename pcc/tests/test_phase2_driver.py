@@ -43,7 +43,7 @@ def _args(world, **over):
              eval_scores=None, eval_labels=None,
              phi="head", head_weights=world["head"], head_bias=None,
              distance_holdout="w_cos_knn_1", stat="worst", ccc_root=None,
-             seed=0, name=None, print_json=False)
+             seed=0, name=None, print_json=False, competitors=False)
     a.update(over)
     return type("A", (), a)
 
@@ -388,6 +388,20 @@ def test_recalibration_ablation_changes_the_offset(world):
     assert off["pcc"]["offset"] == 0.0
     assert off["ablation"]["recalibrate"] is False
     assert on["ablation"]["recalibrate"] is True
+
+
+def test_competitors_are_opt_in_because_they_cost_25_minutes_a_run(world):
+    """One fuzzy_classwise_CP fit is ~99 s at K=1000 with 122k calibration rows, measured.
+    Fifteen candidates per run means competitors cannot be on in every ablation cell, so
+    they are opt-in and the report says which way the switch was."""
+    off = drv.run(_args(world))
+    assert off["competitors_enabled"] is False
+    assert "competitors" not in off["table_1_seen"]
+
+    on = drv.run(_args(world, ccc_root="/definitely/not/a/repo", competitors=True))
+    # an unusable root must be RECORDED, never silently treated as "no competitors"
+    assert on["competitors_enabled"] is True
+    assert on["competitor_errors"], "a broken ccc_root produced no error record"
 
 
 def test_oracle_is_actually_a_ceiling_because_it_is_shrunk(world):
