@@ -320,6 +320,63 @@ sudah mengantisipasi ini lewat regime A/B, ditulis sebelum satu pun angka ini ad
 baris di Pl@ntNet, dan efeknya harus muncul. Kalau tidak muncul, penjelasan ini tidak
 lengkap dan itu yang ditulis.
 
+### Prediksi itu diuji, dan ia lolos di Pl@ntNet — 2026-08-18
+
+`--min-eval-rows` menyimpan hanya kelas yang irisan evaluasinya sanggup menopang estimasi
+per-kelas, lalu PCC dijalankan di sana, 5 seed:
+
+| dump | ambang | kelas lolos | kelas T2 | Δ worst-class | plafon | λ |
+|---|---|---|---|---|---|---|
+| Pl@ntNet | ≥35 | 151 / 1081 | 45 | +0,0203 [−0,0110, +0,0516] | 7% | 0,22 |
+| **Pl@ntNet** | **≥75** | **98 / 1081** | **29** | **+0,0190 [+0,0101, +0,0279]** | **22%** | **0,22** |
+| iNat-2018 | ≥35 | 237 / 8142 | 70 | +0,0000 | 0% | **0,00** |
+| iNat-2018 | ≥75 | 75 / 8142 | 24 | +0,0000 | 0% | **0,00** |
+
+**Pl@ntNet pada ambang 75: CI mengecualikan nol, 5 dari 5 seed lolos.** Kegagalan
+ekor-panjang yang tercatat 2026-08-16 memang artefak keterukuran: begitu evaluasinya
+dibatasi ke kelas yang metriknya terdefinisi, efeknya muncul di dataset kedua.
+
+Perhatikan juga bahwa ambang 75 memberi CI **lebih sempit** daripada 35 meski kelasnya lebih
+sedikit (29 vs 45). Itu tanda tangan yang sama: evaluasi yang lebih dalam berarti derau per
+kelas yang lebih kecil.
+
+### iNat tetap nol, dan sebabnya BUKAN yang kuduga
+
+Dugaan pertamaku adalah kedalaman kalibrasi. Angkanya membantah: setelah restriksi, iNat
+punya **67,5 baris kalibrasi per kelas** dan **98,5 baris evaluasi per kelas** — keduanya di
+atas ambang, dan ~51 kelas latih, jauh di atas dasar p+2.
+
+Yang sebenarnya terjadi: **λ = 0,000 di setiap seed.** Seleksi penyusutan, yang berjalan di
+ruang label TRAIN saja, tidak menemukan λ > 0 yang memperbaiki worst-class di sana. Jadi
+metodenya **menolak bertindak** — bukan gagal diam-diam, tetapi mendeteksi bahwa φ tidak
+membawa sinyal tentang δ_y pada dump itu dan memilih tidak melakukan apa pun.
+
+Kenapa φ membawa sinyal pada K=1081 tetapi tidak pada K=8142 **masih terbuka**. Perbedaan
+paling jelas adalah jumlah kelasnya: delapan kali lebih banyak kelas di ruang deskriptor yang
+sama membuat tetangga terdekat jauh lebih ramai. Itu hipotesis, bukan temuan, dan ditulis
+sebagai hipotesis.
+
+### Seberapa sedikit kelas berlabel yang cukup — 2026-08-18
+
+Lima fraksi held-out pada konfigurasi yang sama dengan seluruh tabel lain, 5 seed:
+
+| held-out | kelas latih | Δ worst-class | plafon | ukuran set |
+|---|---|---|---|---|
+| 10% | 900 | +0,0294 [−0,0210, +0,0798] | 22% | 1,014 |
+| 30% | 700 | +0,0580 [+0,0061, +0,1099] | 42% | 1,223 |
+| **50%** | **500** | **+0,0795 [+0,0244, +0,1347]** | **62%** | 1,415 |
+| 70% | 300 | +0,0660 [+0,0126, +0,1194] | 50% | 1,638 |
+| **90%** | **100** | **+0,0524 [+0,0074, +0,0975]** | **47%** | 1,824 |
+
+**Dengan hanya 100 kelas berlabel dari 1000, efeknya masih +0,0524 dengan CI mengecualikan
+nol.** Empat dari lima titik signifikan; yang tidak adalah 10%, di mana hanya 100 kelas
+held-out yang tersedia sehingga worst-class atas 100 kelas lebih berderau dan ruangnya lebih
+sempit.
+
+Puncaknya di 50%, lalu menurun perlahan. Dasar keras metodenya adalah **p+2 kelas latih** —
+dengan φ kepala itu 11 kelas — jadi 100 masih jauh di atasnya, dan itu klaim praktis yang
+kuat: **label untuk sepersepuluh kelas sudah cukup.**
+
 ### Yang TETAP tidak boleh diklaim
 
 - **Bukan** "PCC bekerja di dataset ekor-panjang". Yang boleh: dengan himpunan evaluasi
@@ -343,7 +400,8 @@ terjawab oleh CCC ImageNet, di mana φ kepala memang eksogen dan hasilnya positi
 | δ_y terprediksi dari geometri kelas | **tertegakkan** (nb 05, dua keluarga φ) |
 | Koreksinya membeli ekuitas pada `n_y = 0` | **tertegakkan untuk φ kepala di ImageNet, α=0,10** |
 | Tidak dibayar oleh kelas ber-data | **tertegakkan** (Tabel 1 juga positif) |
-| Berlaku di dataset ekor-panjang | **TAK TERJAWAB**, bukan gagal — 2–3 baris eval/kelas menaruhnya di regime B, di mana plafon oracle sendiri ≤ 0. Sapuan kedalaman evaluasi (2026-08-18) memprediksi hasil nol itu dari satu sumbu terkendali |
+| Berlaku di dataset ekor-panjang | **YA di Pl@ntNet** begitu evaluasi dibatasi ke kelas terukur: +0,0190 [+0,0101, +0,0279], 5/5 seed. **TIDAK di iNat**, di mana λ=0 — metodenya menolak bertindak, dan kenapa φ kehilangan sinyal pada K=8142 masih terbuka |
+| Cukup dengan sedikit kelas berlabel | **tertegakkan** — 100 dari 1000 kelas masih memberi +0,0524 [+0,0074, +0,0975]; dasar keras p+2 = 11 kelas |
 | Mengalahkan pesaing terbit pada ukuran tercocokkan | **tertegakkan** — PCC +0,0751 vs terbaik +0,0265 (fuzzy-random); classwise CP dan RC3P tak terdefinisi di 300/300 kelas held-out |
 | Berlaku lintas keluarga φ (endogen vs eksogen) | eksogenitas **bukan** pembedanya — kedua lengan ~0 di ketiga backbone |
 | Batas ditentukan keterukuran, bukan metode | **tertegakkan** — kurva kedalaman evaluasi, 5 titik, 5 seed, satu dump |
