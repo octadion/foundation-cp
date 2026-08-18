@@ -28,5 +28,9 @@ reports/**/*.npz
 # Run artefact folders copied back from Colab -- kept out of git on purpose.
 # The findings live in pcc/reports/*.md; the raw per-configuration JSONs are bulky
 # and belong in Drive, not here.
-nb0*_2*/
+#
+# The pattern used to be nb0*_2*/, which silently stopped matching at notebook 10:
+# nb12_20260817_164542/ showed up as untracked rather than ignored, one `git add -A`
+# away from being committed. Any digits now, so notebook 13 and beyond are covered.
+nb[0-9]*_2*/
 runs/
