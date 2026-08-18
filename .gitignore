@@ -34,3 +34,5 @@ reports/**/*.npz
 # away from being committed. Any digits now, so notebook 13 and beyond are covered.
 nb[0-9]*_2*/
 runs/
+
+wacv-2027-author-kit-template/
