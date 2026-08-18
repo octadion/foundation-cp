@@ -43,7 +43,8 @@ def _args(world, **over):
              eval_scores=None, eval_labels=None,
              phi="head", head_weights=world["head"], head_bias=None,
              distance_holdout="w_cos_knn_1", stat="worst", ccc_root=None,
-             seed=0, name=None, print_json=False, competitors=False)
+             seed=0, name=None, print_json=False, competitors=False,
+             eval_depth=None)
     a.update(over)
     return type("A", (), a)
 
@@ -499,6 +500,25 @@ def test_score_axis_rejects_an_unknown_name(world):
     with pytest.raises(ValueError) as ei:
         drv.run(_args(world, score="nope"))
     assert "unknown --score" in str(ei.value)
+
+
+def test_eval_depth_caps_the_evaluation_slice_and_moves_the_regime(world):
+    """The mirror of cal_depth, and the axis every failure points at.
+
+    CCC works with 75-175 evaluation rows per class, the torchvision-backbone dumps fail
+    with 35, Pl@ntNet and iNat fail with 2-3. Calibration depth was ruled out by its own
+    sweep, so this is the remaining candidate -- and it has to be capped INSIDE one dump or
+    dataset and backbone confound it all over again.
+    """
+    full = drv.run(_args(world))
+    thin = drv.run(_args(world, eval_depth=3))
+    assert thin["ablation"]["eval_depth"] == 3
+    assert thin["split_sizes"]["eval"] < full["split_sizes"]["eval"]
+    # three rows per class cannot support a per-class coverage estimate, so the
+    # pre-registered rule must move the primary statistic off `worst`
+    assert thin["table_2_heldout"]["measurability"]["median_eval_per_class"] <= 3
+    assert not thin["table_2_heldout"]["measurability"]["per_class_stats_reportable"]
+    assert full["ablation"]["eval_depth"] is None
 
 
 def test_cal_depth_reports_whether_the_cap_actually_bound(world):

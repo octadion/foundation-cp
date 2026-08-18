@@ -668,6 +668,21 @@ def run(args) -> dict:
     def _sc(P):
         return score_matrix(P, score, seed=args.seed)
 
+    # EVALUATION DEPTH -- the mirror of cal_depth, and the axis every failure so far
+    # points at. CCC works with 75-175 evaluation rows per class; the torchvision-backbone
+    # dumps fail with 35; Pl@ntNet and iNat fail with 2-3. Calibration depth was ruled out
+    # by its own sweep (10 rows still works on CCC), so evaluation depth is the remaining
+    # candidate -- and capping it INSIDE one dump is the only way to test it without
+    # confounding dataset and backbone all over again.
+    if getattr(args, "eval_depth", None) and len(i_eval):
+        re = np.random.default_rng(args.seed + 999)
+        keep_e = []
+        for c in range(K):
+            idx = i_eval[y_all[i_eval] == c]
+            keep_e.append(re.choice(idx, int(args.eval_depth), replace=False)
+                          if len(idx) > args.eval_depth else idx)
+        i_eval = np.sort(np.concatenate(keep_e)) if keep_e else i_eval
+
     S_cal = _sc(S_all[i_cal_seen])
     y_cal = y_all[i_cal_seen]
     used_separate_eval = S_eval_sep is not None
@@ -782,6 +797,7 @@ def run(args) -> dict:
         "knn_ks_used": list(knn_ks), "knn_ks_dropped_K_too_small": list(knn_dropped),
         "ablation": {"cal_depth": getattr(args, "cal_depth", None),
                      "cal_depth_classes_capped": int(cap_bound),
+                     "eval_depth": getattr(args, "eval_depth", None),
                      "cal_depth_binding": bool(cap_bound > 0.5 * len(seen)),
                      "lam_override": getattr(args, "lam_override", None),
                      "n_star_rule": getattr(args, "n_star_rule", "oos"),
@@ -862,6 +878,8 @@ def verdict(res: dict, stat: str) -> str:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--eval-depth", type=int, default=None,
+                   help="cap EVALUATION rows per class; the mirror of --cal-depth")
     p.add_argument("--competitors", action="store_true",
                    help="fit the published competitors too. " + COMPETITOR_COST)
     p.add_argument("--score", default="thr", choices=sorted(SCORE_FNS),
