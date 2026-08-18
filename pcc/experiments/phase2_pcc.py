@@ -511,13 +511,31 @@ def _competitor_thresholds(ltc_root, S_cal, y_cal, K, alpha, seed, P_cal=None,
     cu = importlib.import_module("utils.conformal_utils")
 
     out, errs = {}, {}
+    # The released code prints a per-class line for every class it cannot fit -- with
+    # K=1000 and 300 held-out classes that is thousands of lines per candidate, tens of
+    # thousands per run. It drowns the notebook log and truncated the one that had to be
+    # read to diagnose phase 3. Captured rather than discarded: the lines are counted and
+    # the first few kept, so nothing new goes unnoticed.
+    import contextlib
+    import io as _io
+    chatter = {}
 
     def _try(name, fn, label="-"):
+        buf = _io.StringIO()
         try:
-            q = np.atleast_1d(np.asarray(fn(), dtype=float)).ravel()
+            with contextlib.redirect_stdout(buf):
+                q = np.atleast_1d(np.asarray(fn(), dtype=float)).ravel()
         except Exception as e:                                       # noqa: BLE001
             errs[name] = type(e).__name__ + ": " + str(e)[:200]
             return
+        finally:
+            lines = [l for l in buf.getvalue().splitlines() if l.strip()]
+            if lines:
+                c = chatter.setdefault(name, {"n_lines": 0, "sample": []})
+                c["n_lines"] += len(lines)
+                for l in lines[:3]:
+                    if l not in c["sample"] and len(c["sample"]) < 3:
+                        c["sample"].append(l)
         if q.size == 1:
             q = np.full(K, float(q[0]))
         if q.size != K:
@@ -535,6 +553,7 @@ def _competitor_thresholds(ltc_root, S_cal, y_cal, K, alpha, seed, P_cal=None,
         _try("rc3p",
              lambda: cu.compute_rc3p_params(P_cal, S_cal, y_cal, alpha)[0])
         del P_cal
+
 
     # The `rarity` projection embeds a class by its TRAIN prevalence, which exists without
     # any calibration row -- so it is the one projection that can give a held-out class an
@@ -576,7 +595,9 @@ def _competitor_thresholds(ltc_root, S_cal, y_cal, K, alpha, seed, P_cal=None,
     # matrices and loops over every row in Python -- measured 68 s and +1.85 GB at 70k
     # rows. Holding P_cal through the fifteen fuzzy fits afterwards would keep another
     # 0.28 GB resident (0.7 GB on the full slice) for nothing.
-    return out, errs
+    # kept OUT of `errs`: that field means "a competitor failed", and noisy stdout is
+    # not a failure. Conflating them would make a clean run look broken.
+    return out, errs, chatter
 
 
 # ------------------------------------------------------------------------- main
@@ -784,17 +805,20 @@ def run(args) -> dict:
     # Published competitors, fitted ONCE over the full label space and then read inside
     # both tables. Fitting per table would let each of them see a different calibration
     # slice, which is not what any of them does in deployment.
-    comps, comp_errs = {}, {}
+    comps, comp_errs, comp_chatter = {}, {}, {}
     want_comp = getattr(args, "competitors", False)
     if args.ccc_root and want_comp:
         try:
-            comps, comp_errs = _competitor_thresholds(
+            comps, comp_errs, comp_chatter = _competitor_thresholds(
                 args.ccc_root, S_cal, y_cal, K, args.alpha, args.seed,
                 P_cal=(1.0 - S_cal) if score == "thr" else None,
                 class_counts=cnt_full, tmp_dir=args.reports_dir)
         except Exception as e:                                       # noqa: BLE001
             comp_errs = {"_import": type(e).__name__ + ": " + str(e)[:300]}
+            comp_chatter = {}
     res["competitor_errors"] = comp_errs
+    res["competitor_stdout"] = {k: {"n_lines": v["n_lines"], "sample": v["sample"]}
+                                for k, v in comp_chatter.items()}
     res["competitors_enabled"] = bool(args.ccc_root and want_comp)
     res["competitor_candidates"] = {k: [lb for lb, _ in v] for k, v in comps.items()}
     # RC3P needs the raw softmax as well as the score matrix, and softmax is only
