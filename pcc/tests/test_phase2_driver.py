@@ -44,7 +44,7 @@ def _args(world, **over):
              phi="head", head_weights=world["head"], head_bias=None,
              distance_holdout="w_cos_knn_1", stat="worst", ccc_root=None,
              seed=0, name=None, print_json=False, competitors=False,
-             eval_depth=None)
+             eval_depth=None, min_eval_rows=None)
     a.update(over)
     return type("A", (), a)
 
@@ -500,6 +500,29 @@ def test_score_axis_rejects_an_unknown_name(world):
     with pytest.raises(ValueError) as ei:
         drv.run(_args(world, score="nope"))
     assert "unknown --score" in str(ei.value)
+
+
+def test_min_eval_rows_keeps_only_measurable_classes(world):
+    """The falsifiable half of the evaluation-depth explanation.
+
+    Below ~35 evaluation rows per class the oracle ceiling itself is zero, so a null result
+    there says nothing about the method. A median of 3 is not a floor: head classes have
+    far more. Restricting to classes that clear the threshold is what makes the long-tail
+    question answerable, so the restriction has to be exact and it has to be recorded.
+    """
+    full = drv.run(_args(world))
+    # thin the evaluation slice, then demand classes that still clear a threshold
+    res = drv.run(_args(world, eval_depth=8, min_eval_rows=8))
+    assert res["min_eval_rows"] == 8
+    assert res["n_heldout"] <= full["n_heldout"]
+    m = res["table_2_heldout"]["measurability"]
+    assert m["min_eval_per_class"] >= 8, m
+    assert res["classes_dropped_too_thin_to_measure"] >= 0
+
+    # and an impossible threshold must say so instead of silently emptying the table
+    with pytest.raises(ValueError) as ei:
+        drv.run(_args(world, min_eval_rows=10_000))
+    assert "leaves no held-out class" in str(ei.value)
 
 
 def test_eval_depth_caps_the_evaluation_slice_and_moves_the_regime(world):

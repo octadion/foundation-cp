@@ -258,37 +258,76 @@ plafon dihitung dari label EVAL, jadi ia tidak peduli setipis apa irisan kalibra
 karena ia datar, kenaikan 26% → 46% seluruhnya **PCC yang membaik**, bukan ruang yang
 melebar. Tanpa plafon yang benar, ini tidak bisa dibedakan.
 
-### Kalau bukan kedalaman kalibrasi, lalu apa?
+### Kalau bukan kedalaman kalibrasi, lalu apa? — TERJAWAB 2026-08-18
 
-Sapuan itu menahan konstan dua hal yang justru berbeda tajam di Pl@ntNet dan iNat:
+Sapuan kedalaman menahan konstan dua hal yang berbeda tajam di setting yang gagal:
+kedalaman **evaluasi** dan keluarga φ. Keduanya lalu diuji, dan **keluarga φ tersingkir**
+sementara **kedalaman evaluasi terkonfirmasi.**
 
-1. **Kedalaman EVALUASI, yaitu regime keterukuran.** CCC ImageNet punya 75–175 baris
-   evaluasi per kelas (regime A, `worst` terukur). Pl@ntNet punya median 3 dan iNat 2
-   (regime B), di mana statistik primernya `bin_worst` — jauh lebih kasar, dan sebuah
-   kelas dengan 2 baris hanya bisa bercakupan 0, 0,5, atau 1.
-2. **Keluarga φ.** CCC memakai φ kepala; Pl@ntNet dan iNat hanya pernah dijalankan dengan
-   φ ruang-output, dan keluarga itu juga mendekati nol di ImageNet.
+**φ tersingkir.** Notebook 12 fase 5 menjalankan tiap backbone dua kali — dengan kepalanya
+sendiri (φ endogen) dan dengan kepala torchvision ResNet-50 tetap (φ eksogen, susunan yang
+sama dengan CCC). Korelasi elemen antara kedua kepala itu 0,0011, jadi lengan eksogennya
+benar-benar eksogen. Hasilnya:
 
-Keduanya **belum pernah diisolasi sebagai faktor tunggal**. Jadi status yang jujur adalah:
-kedalaman kalibrasi terbukti mengatur besarnya efek; penyebab kegagalan di dataset
-ekor-panjang **masih terbuka**, dengan dua kandidat terukur di atas.
+| backbone | φ endogen | φ eksogen |
+|---|---|---|
+| convnext_tiny | +0,0000 | +0,0114 |
+| resnet50 | +0,0171 | +0,0057 |
+| vit_b_16 | −0,0286 | −0,0114 |
 
-### Konsekuensi jujur untuk paper
+Semua CI memuat nol. Eksogenitas menggeser sedikit dan tidak menyelamatkan apa pun.
+Hipotesis "PCC butuh φ dari model lain" **salah**, dan dicatat sebagai salah.
 
-Klaim yang boleh ditulis sekarang lebih sempit dari yang sebelumnya ditulis di sini,
-tetapi bentuknya lebih baik — kurva dosis yang dirancang, bukan korelasi lintas-dataset
-yang kebetulan:
+**Kedalaman evaluasi terkonfirmasi.** `--eval-depth` memotong baris evaluasi per kelas —
+cermin dari `--cal-depth` — disapu di dalam dump primer dengan dataset, backbone, φ, skor,
+dan α semuanya konstan, 5 seed:
 
-> Koreksi kelas terprediksi memperbaiki ekuitas worst-class pada kelas tanpa sampel
-> kalibrasi sama sekali, dan besar perbaikannya naik dengan kedalaman kalibrasi kelas lain:
-> dari 26% plafon oracle pada 10 baris/kelas menjadi 46% pada 100. Ia **tidak** berlaku di
-> dua dataset ekor-panjang yang diuji, dan sapuan kedalaman menunjukkan kedalaman
-> kalibrasi bukan penyebabnya — dua kandidat yang tersisa adalah kedalaman evaluasi
-> (keterukuran) dan keluarga deskriptor, keduanya belum diisolasi.
+| baris eval / kelas | Δ worst-class | regime | statistik primer | plafon oracle |
+|---|---|---|---|---|
+| 3 | −0,0060 [−0,0133, +0,0012] | B | `bin_worst` | **≤ 0** |
+| 10 | +0,0020 [−0,0071, +0,0111] | B | `bin_worst` | 15% |
+| 35 | +0,0171 [−0,0377, +0,0720] | A | `worst` | 14% |
+| 75 | **+0,0556** [+0,0023, +0,1089] | A | `worst` | 40% |
+| semua (76) | **+0,0580** [+0,0061, +0,1099] | A | `worst` | 42% |
 
-Yang **tidak** boleh lagi ditulis: "di bawah ~26 baris/kelas efeknya hilang ke derau."
-Datanya sendiri membantahnya. Versi lama dibiarkan di atas dengan sengaja, sesuai kebiasaan
-proyek ini mencatat koreksi alih-alih menghapusnya.
+Monoton, dan CI menyeberangi nol tepat antara 35 dan 75.
+
+### Satu sumbu memprediksi ketiga kegagalan
+
+| setting | baris eval/kelas | prediksi sapuan | teramati |
+|---|---|---|---|
+| backbone torchvision | 35 | +0,0171, CI memuat nol | **+0,0171**, CI memuat nol |
+| Pl@ntNet | 3 | −0,0060, CI memuat nol | ~0, CI memuat nol |
+| iNat-2018 | 2 | lebih buruk dari −0,0060 | tepat 0,0000 |
+
+Titik estimasi backbone cocok sampai empat desimal. Satu sumbu terkendali menjelaskan tiga
+kegagalan yang sebelumnya diatribusikan ke dataset, backbone, dan endogenitas.
+
+### Kenapa ini bukan sekadar penjelasan, tetapi pergeseran klaim
+
+Perhatikan kolom plafon. Pada 3 baris evaluasi per kelas plafon oracle **≤ 0**: sebuah
+oracle yang memegang label uji pun tidak bisa membeli cakupan worst-class di sana. Yang
+lenyap adalah **ruangnya**, bukan kemampuan metode mengambilnya. Dan pada 3 dan 10 baris,
+aturan keterukuran yang dibekukan lebih dulu memindahkan statistik primernya ke
+`bin_worst` — karena kelas dengan 3 sampel hanya bisa bercakupan 0, ⅓, ⅔, atau 1.
+
+**Jadi batasnya bukan sifat metode; ia sifat keterukuran.** Pl@ntNet dan iNat tidak
+menunjukkan PCC gagal — mereka menunjukkan **pertanyaannya tak terjawab** dengan himpunan
+evaluasi sebesar itu, untuk metode apa pun. Pra-registrasi `prereg_metrics_per_dataset.md`
+sudah mengantisipasi ini lewat regime A/B, ditulis sebelum satu pun angka ini ada.
+
+**Prediksi yang bisa jatuh, dan harus diuji:** batasi evaluasi ke kelas yang punya cukup
+baris di Pl@ntNet, dan efeknya harus muncul. Kalau tidak muncul, penjelasan ini tidak
+lengkap dan itu yang ditulis.
+
+### Yang TETAP tidak boleh diklaim
+
+- **Bukan** "PCC bekerja di dataset ekor-panjang". Yang boleh: dengan himpunan evaluasi
+  yang dirilis, pertanyaannya tak terjawab untuk metode apa pun.
+- **Bukan** "PCC bekerja lintas arsitektur". ImageNet val hanya 50 baris/kelas pada
+  K=1000, jadi bahkan dengan `frac_cal` seminimal mungkin, evaluasinya di bawah 75 tempat
+  efeknya baru terdeteksi. Backbone diuji **pada kedalaman terdalam yang dataset itu
+  izinkan**, dan sapuan ini yang memberi tahu bahwa kedalaman itu di bawah ambang deteksi.
 
 ### Yang TIDAK boleh disimpulkan dari run ini
 
@@ -304,7 +343,9 @@ terjawab oleh CCC ImageNet, di mana φ kepala memang eksogen dan hasilnya positi
 | δ_y terprediksi dari geometri kelas | **tertegakkan** (nb 05, dua keluarga φ) |
 | Koreksinya membeli ekuitas pada `n_y = 0` | **tertegakkan untuk φ kepala di ImageNet, α=0,10** |
 | Tidak dibayar oleh kelas ber-data | **tertegakkan** (Tabel 1 juga positif) |
-| Berlaku di dataset ekor-panjang | **TIDAK** — diuji 2026-08-16; CI memuat nol di Pl@ntNet, nol mutlak di iNat. Sebabnya **bukan** kedalaman kalibrasi (sapuan 2026-08-17 positif pada 10 baris/kelas); kandidat tersisa: kedalaman evaluasi dan keluarga φ |
-| Mengalahkan Clustered CP pada ukuran tercocokkan | pesaing terpasang 2026-08-17 sebagai vektor ambang per-kelas; angkanya dari notebook 12 |
+| Berlaku di dataset ekor-panjang | **TAK TERJAWAB**, bukan gagal — 2–3 baris eval/kelas menaruhnya di regime B, di mana plafon oracle sendiri ≤ 0. Sapuan kedalaman evaluasi (2026-08-18) memprediksi hasil nol itu dari satu sumbu terkendali |
+| Mengalahkan pesaing terbit pada ukuran tercocokkan | **tertegakkan** — PCC +0,0751 vs terbaik +0,0265 (fuzzy-random); classwise CP dan RC3P tak terdefinisi di 300/300 kelas held-out |
+| Berlaku lintas keluarga φ (endogen vs eksogen) | eksogenitas **bukan** pembedanya — kedua lengan ~0 di ketiga backbone |
+| Batas ditentukan keterukuran, bukan metode | **tertegakkan** — kurva kedalaman evaluasi, 5 titik, 5 seed, satu dump |
 | Besarnya efek naik dengan kedalaman kalibrasi | **tertegakkan** — 26% → 46% plafon, 10 seed, CI mengecualikan nol di kelima titik |
 | Berlaku lintas α | **tidak** pada α=0,05 sejauh ini |

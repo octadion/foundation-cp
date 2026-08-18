@@ -787,8 +787,34 @@ def run(args) -> dict:
                     seed=args.seed)
     t = model.thresholds()
 
+    # RESTRICT TO CLASSES WHERE THE METRIC IS MEASURABLE AT ALL.
+    #
+    # The evaluation-depth sweep showed the oracle ceiling itself falls to zero below about
+    # 35 evaluation rows per class: no method, not even one holding the test labels, can
+    # improve worst-class coverage there. On Pl@ntNet the MEDIAN is 3 -- but a median is not
+    # a floor, and its head classes have far more. Keeping only classes that clear the
+    # threshold turns "the method fails on long-tail data" into a question that can actually
+    # be answered on long-tail data, and it is the falsifiable half of that explanation: if
+    # the effect appears here, evaluation depth was the boundary; if it does not, the
+    # explanation is incomplete and that is what gets written.
+    n_dropped_thin = 0
+    if getattr(args, "min_eval_rows", None):
+        per_ev = np.bincount(y_ev, minlength=K)
+        thick = np.where(per_ev >= int(args.min_eval_rows))[0]
+        n_dropped_thin = int(K - len(thick))
+        seen = np.intersect1d(seen, thick)
+        heldout = np.intersect1d(heldout, thick)
+        if not len(heldout):
+            raise ValueError(
+                "min_eval_rows={} leaves no held-out class: {} of {} classes have that "
+                "many evaluation rows. Lower it, or accept that this slice cannot measure "
+                "per-class coverage at all.".format(
+                    args.min_eval_rows, len(thick), K))
+
     res = {
         "n_classes": K, "n_seen": int(len(seen)), "n_heldout": int(len(heldout)),
+        "min_eval_rows": getattr(args, "min_eval_rows", None),
+        "classes_dropped_too_thin_to_measure": n_dropped_thin,
         "split_sizes": {"desc": int(len(i_desc)), "cal_seen": int(len(i_cal_seen)),
                         "eval": int(len(y_ev))},
         "eval_from_separate_dump": bool(used_separate_eval),
@@ -878,6 +904,9 @@ def verdict(res: dict, stat: str) -> str:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--min-eval-rows", type=int, default=None,
+                   help="keep only classes with this many EVALUATION rows; the falsifiable "
+                        "half of the evaluation-depth explanation")
     p.add_argument("--eval-depth", type=int, default=None,
                    help="cap EVALUATION rows per class; the mirror of --cal-depth")
     p.add_argument("--competitors", action="store_true",
