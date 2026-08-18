@@ -421,6 +421,34 @@ def test_competitors_are_opt_in_because_they_cost_25_minutes_a_run(world):
     assert on["competitor_errors"], "a broken ccc_root produced no error record"
 
 
+def test_who_is_helped_distinguishes_lifting_from_trading(world):
+    """A worst-class number cannot say whether the tail was lifted or a class was traded.
+
+    If PCC raises the worst class, the same class is usually still the worst afterwards,
+    just higher. If it merely reshuffles, a DIFFERENT class is now at the bottom. Those are
+    opposite stories for a long-tail claim and the headline number reads identically for
+    both, so the identities are recorded rather than inferred.
+    """
+    res = drv.run(_args(world))
+    for tn in ("table_1_seen", "table_2_heldout"):
+        w = res[tn]["who_is_helped"]
+        q = w["by_prevalence_quintile"]
+        assert 1 <= len(q) <= 5
+        assert sum(x["n_classes"] for x in q) == res[tn]["n_classes"]
+        # quintiles are ordered rarest-first, so prevalence must not decrease
+        med = [x["median_prevalence"] for x in q]
+        assert med == sorted(med), med
+        for x in q:
+            assert 0.0 <= x["frac_improved"] <= 1.0
+        assert 0.0 <= w["frac_classes_improved"] <= 1.0
+        assert w["frac_classes_improved"] + w["frac_classes_worsened"] <= 1.0 + 1e-9
+        if "worst_class_before" in w:
+            assert isinstance(w["worst_class_is_same"], bool)
+            # the old worst class's coverage after the correction is what says whether it
+            # was lifted, and it must be a real coverage
+            assert 0.0 <= w["coverage_of_old_worst_after"] <= 1.0
+
+
 def test_oracle_is_actually_a_ceiling_because_it_is_shrunk(world):
     """A bound the method can beat is not a bound.
 

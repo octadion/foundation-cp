@@ -270,6 +270,42 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
         e["worst_slab"] = float(min(slabs)) if slabs else float("nan")
         return e
 
+    # G4: WHICH classes the correction helps, not just by how much.
+    #
+    # A single worst-class number cannot say whether the method lifts the rare tail or
+    # merely trades one unlucky class for another, and that distinction is the whole
+    # story for a long-tail claim. Per-class coverage change is summarised by prevalence
+    # quintile, and the identity of the worst class is recorded before and after -- if
+    # the worst class is the SAME one both times, PCC lifted it; if it moved, PCC traded.
+    def _who(thr_a, thr_b, sh_a, sh_b):
+        ca = per_class_coverage(np.asarray(S_sub) <= (np.asarray(thr_a, float) + sh_a)[None, :],
+                                y_sub, K_sub)
+        cb = per_class_coverage(np.asarray(S_sub) <= (np.asarray(thr_b, float) + sh_b)[None, :],
+                                y_sub, K_sub)
+        d = cb - ca
+        prev = np.asarray(counts, float)[ids] if counts is not None else np.arange(K_sub)
+        order = np.argsort(prev, kind="stable")            # rarest first
+        q = np.array_split(order, 5)
+        out = {"by_prevalence_quintile": [
+                   {"quintile": i + 1, "n_classes": int(len(g_)),
+                    "median_prevalence": float(np.median(prev[g_])),
+                    "mean_coverage_change": float(np.nanmean(d[g_])),
+                    "frac_improved": float(np.nanmean(d[g_] > 0))}
+                   for i, g_ in enumerate(q) if len(g_)],
+               "frac_classes_improved": float(np.nanmean(d > 0)),
+               "frac_classes_worsened": float(np.nanmean(d < 0))}
+        if np.isfinite(ca).any() and np.isfinite(cb).any():
+            wa, wb = int(np.nanargmin(ca)), int(np.nanargmin(cb))
+            out.update({
+                "worst_class_before": {"class_id": int(ids[wa]), "coverage": float(ca[wa]),
+                                       "prevalence": float(prev[wa])},
+                "worst_class_after": {"class_id": int(ids[wb]), "coverage": float(cb[wb]),
+                                      "prevalence": float(prev[wb])},
+                # same class lifted, or a different class now at the bottom
+                "worst_class_is_same": bool(wa == wb),
+                "coverage_of_old_worst_after": float(cb[wa])})
+        return out
+
     e_base = _abs(base, e_base)
     e_pcc = _abs(t_pcc, e_pcc)
 
@@ -349,6 +385,7 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
         "size_matched": bool(abs(e_pcc["avg_set_size"] - e_base["avg_set_size"]) < 1e-2),
         "raw_unmatched": {"uncorrected": raw_base, "pcc": raw_pcc,
                           "delta": {k: raw_pcc[k] - raw_base[k] for k in raw_base}},
+        "who_is_helped": _who(base, t_pcc, e_base["shift"], e_pcc["shift"]),
     }
 
     if not meas["per_class_stats_reportable"] and counts is not None:
