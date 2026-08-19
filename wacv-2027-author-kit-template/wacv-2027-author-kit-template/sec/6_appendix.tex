@@ -427,18 +427,56 @@ rows. We measured the cost of the reuse in \cref{app:invisible}, where \textsc{P
 $0.0024$ of marginal coverage below the marginal threshold on the same rows.
 
 \textsc{Pcc}-split is the variant the proposition covers. The calibration rows of each labelled
-class are divided in two by a per-class random split; the first part estimates $\delta_y$, fits
+class are divided by a per-class random split; the first part estimates $\delta_y$, fits
 $g_\theta$ and selects $\lambda$ and $n_{\mathrm{cal}}$, and the second part is used for nothing
 except the conformal quantile that gives $c$. Held-out classes and evaluation rows are untouched
-in both variants, so the comparison isolates the effect of the reuse. The cost is statistical:
-each half has half the rows, which makes $g_\theta$ noisier and $c$ less precise, and
-\cref{tab:depth} shows that halving calibration depth from $100$ to $50$ examples per class
-costs about $0.019$ of worst-class improvement.
+in both variants, so the comparison isolates the effect of the reuse.
 
-\TODO{Fill from the PCC-split run: marginal coverage at the emitted thresholds against the
-$1-\alpha$ target, the width of the finite-sample interval, and $\Delta$ worst-class on
-held-out classes beside the reuse variant, ten splits. This is the only number in the paper
-that is not yet measured; the run is CPU-only.}
+The cost is statistical and falls entirely on $g_\theta$. The offset $c$ is a single scalar
+computed from pooled rows, so it needs a large total and not depth within each class: at the
+two fractions we report it is estimated from roughly $31$k and $62$k rows, whose conformal
+slack is $3\times10^{-5}$ and $2\times10^{-5}$, both two orders of magnitude below the
+$0.0024$ deficit being measured. The regression is the part that pays, since it needs depth
+per class: the reuse variant fits on $174$ calibration examples per class and the two split
+variants on $131$ and $87$. \Cref{tab:depth} puts the price of that at roughly $0.019$ per
+halving. We report two fractions rather than one so that the choice cannot be read as tuned.
+
+\TODO{Fill from phase R of notebook 13: marginal coverage at the emitted thresholds against
+the $1-\alpha$ target for all three arms, and $\Delta$ worst-class paired over the ten splits.
+CPU-only.}
+
+\section{The row budget, and whether the results depend on it}
+\label{app:rowbudget}
+
+Every table in this paper is computed on a random subsample of $250{,}000$ rows from a score
+dump of $1{,}153{,}051$, and the reason is worth stating plainly because it began as a
+practical one. The full dump is a $1{,}153{,}051\times1000$ matrix of \texttt{float32}, which
+is $4.61$\,GB, and holding it alongside the score transform and the calibration and evaluation
+slices exceeds the memory of the machines we ran on.
+
+Three properties make the subsample a valid operation rather than a convenience. It is drawn
+as a fraction \emph{within each class} rather than as a global cap, which preserves the
+prevalence structure of the dump; a global cap would equalise the class counts and make the
+prevalence feature constant, which would in turn make the prevalence ablation vacuous. Because
+the draw is uniform at random and does not depend on any score or label value, the calibration
+and test rows remain exchangeable, so \cref{prop:marginal} is unaffected. And the depth that
+remains, about $250$ rows per class, exceeds the $84$ per class that the pre-registered premise
+required, by a factor of $2.7$.
+
+What the subsample does cost is precision, and the direction of that cost is the part a reader
+should be able to check rather than take on trust. Both of the depth results in this paper say
+the cost runs against us: \cref{tab:depth} shows worst-class improvement rising with
+calibration depth, from $0.033$ at ten examples per class to $0.059$ at $175$, and
+\cref{fig:evaldepth} shows the measurable effect rising with evaluation depth. A larger budget
+should therefore give a \emph{larger} number, which would make $250{,}000$ conservative.
+
+\TODO{Fill from phase M of notebook 13, which sweeps the budget over $250$k, $500$k and $750$k
+rows at five splits each, giving $174$, $349$ and $525$ calibration examples per class and
+$75$, $150$ and $225$ evaluation examples. Report $\Delta$ worst-class at each budget with its
+interval, and the slope against $\log$ rows. If the slope is positive the prediction above
+holds and the reported numbers are conservative; if it is negative the headline depends on the
+subsample and that belongs in \cref{sec:discussion} rather than here. The full dump is not in
+the sweep because its peak footprint is $9.7$\,GB.}
 
 \section{Descriptor choices}
 \label{app:descriptors}

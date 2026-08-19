@@ -28,7 +28,11 @@ examples per class for other $\alpha$ or other label spaces, and we would not ex
 number to transfer exactly. Third, the configuration behind every table lets $g_\theta$,
 $\lambda$ and $c$ share calibration rows, which is not what \cref{prop:marginal} assumes; the
 measured cost is $0.0024$ of marginal coverage (\cref{app:invisible}) and the variant that
-satisfies the premise is reported separately (\cref{app:split}).
+satisfies the premise is reported separately (\cref{app:split}). Fourth, all of our tables use
+a random per-class subsample of the score dump, adopted for memory reasons and described in
+\cref{app:rowbudget}; it leaves $2.7$ times the depth the pre-registered premise required and,
+by both of our own depth results, should if anything understate the effect, but the budget is
+swept there so that the claim rests on a measurement.
 
 \paragraph{Hypotheses we discarded.} Three explanations we held during the work were refuted by
 experiments designed to test them, and we record them with the measurements that ruled them
