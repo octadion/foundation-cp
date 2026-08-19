@@ -9,8 +9,8 @@ with all of their calibration rows deleted, $n_{\mathrm{cal}}=25$, and five rand
 Intervals are $95\%$ confidence intervals over splits. Every comparison is made at matched
 average set size, as described in \cref{sec:setup}.
 
-\paragraph{Metrics.} \Cref{tab:metrics} defines the quantities we report. The headline
-statistic is worst-class coverage, since a single badly covered class is what a
+\paragraph{Metrics.} \Cref{tab:metrics} in the appendix defines every quantity we report.
+The headline statistic is worst-class coverage, since a single badly covered class is what a
 class-conditional guarantee is meant to prevent, but it can only be estimated when classes
 have enough evaluation examples. We therefore fix a threshold of $30$ evaluation examples per
 class in advance: above the threshold we report per-class worst coverage (regime~A) and below
@@ -36,43 +36,6 @@ $87\%$. The headline figures quoted below are therefore ratios of means, and the
 spread is the honest measure of how well we can pin them down with the number of splits
 ImageNet's validation set allows.
 
-% ---------------------------------------------------------------- metrics
-\begin{table}[t]
-\centering
-\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}ll@{}}
-\toprule
-Metric & Definition \\
-\midrule
-$\hat c_y$ (class coverage)
-  & $\frac{1}{|J_y|}\sum_{i\in J_y}\mathbf{1}\{Y_i\in\mathcal{C}(X_i)\}$ \\[2pt]
-Worst-class (regime A)
-  & $\min_{y}\hat c_y$ \\[2pt]
-Bin-worst (regime B)
-  & $\min_{b}\hat c^{(b)}$, prevalence bins $b$ \\[2pt]
-$\Delta$ worst-class
-  & worst-class, method $-$ marginal, matched size \\[2pt]
-Below target
-  & $\frac{1}{|\mathcal{Y}|}\sum_y\mathbf{1}\{\hat c_y<1-\alpha\}$ \\[2pt]
-SSCV
-  & $\max_{b}\bigl|\hat c^{(b)}-(1-\alpha)\bigr|$, set-size strata \\[2pt]
-Worst-slab
-  & $\min$ mean $\hat c_y$ over prevalence windows \\[2pt]
-Average set size
-  & $\frac{1}{N}\sum_i|\mathcal{C}(X_i)|$ \\[2pt]
-Empty-set rate
-  & $\frac{1}{N}\sum_i\mathbf{1}\{|\mathcal{C}(X_i)|=0\}$ \\
-\bottomrule
-\end{tabular}
-\caption{Evaluation metrics. $J_y$ is the set of test indices with label $y$ and $N$ the
-number of test points. Bins and strata are pooled groups, used where a per-class estimate is
-too noisy to report: prevalence bins require $200$ test rows each and set-size strata $30$.
-The empty-set rate is included because an average set size below one is only possible when a
-substantial share of test points receive nothing, a regime in which coverage and set size both
-merely look low.}
-\label{tab:metrics}
-\end{table}
 
 % ---------------------------------------------------------------- competitors
 \begin{table}[t]
@@ -83,17 +46,18 @@ merely look low.}
 \toprule
 Method & $\Delta$ worst-class & Set size & Undefined \\
 \midrule
-\textsc{Standard} \cite{vovk2005algorithmic}   & $+0.000$ & $1.223$ & $0/300$ \\
-\textsc{Classwise} \cite{sadinle2019least}     & $+0.000$ & $1.223$ & $\mathbf{300/300}$ \\
-\textsc{Clustered} \cite{ding2023class}        & $+0.000$ & $1.223$ & $0/300$ \\
-\textsc{Rc3p} \cite{shi2024rank}               & $+0.000$ & $1.223$ & $\mathbf{300/300}$ \\
-\textsc{Fuzzy}, quantile \cite{ding2026conformal} & $+0.000$ & $1.223$ & $0/300$ \\
-\textsc{Fuzzy}, rarity \cite{ding2026conformal}   & $+0.003$ & $1.223$ & $0/300$ \\
-\textsc{Fuzzy}, random \cite{ding2026conformal}   & $+0.027$ & $1.223$ & $0/300$ \\
+\textsc{Standard} \cite{vovk2005algorithmic}   & $+0.000$ & $1.221$ & $0/300$ \\
+\textsc{Classwise} \cite{sadinle2019least}     & $+0.000$ & $1.221$ & $\mathbf{300/300}$ \\
+\textsc{Clustered} \cite{ding2023class}        & $+0.000$ & $1.221$ & $0/300$ \\
+\textsc{Rc3p} \cite{shi2024rank}               & $+0.000$ & $1.221$ & $\mathbf{300/300}$ \\
+\textsc{Fuzzy}, quantile \cite{ding2026conformal} & $+0.000$ & $1.221$ & $0/300$ \\
+\textsc{Fuzzy}, rarity \cite{ding2026conformal}   & $+0.003$ & $1.221$ & $0/300$ \\
+\textsc{Fuzzy}, random \cite{ding2026conformal}   & $+0.027$ & $1.221$ & $0/300$ \\
+\textsc{Interp-Q} \cite{ding2026conformal}        & $+0.000$ & $1.221$ & $0/300$ \\
 \midrule
-\textbf{PCC (ours)} & $\mathbf{+0.075}$ & $1.223$ & $\mathbf{0/300}$ \\
+\textbf{PCC (ours)} & $\mathbf{+0.075}$ & $1.221$ & $\mathbf{0/300}$ \\
 \midrule
-\textit{Oracle ceiling} & \textit{+0.107} & \textit{1.223} & --- \\
+\textit{Oracle ceiling} & \textit{+0.107} & \textit{1.221} & --- \\
 \bottomrule
 \end{tabular}
 \caption{Classes with zero calibration examples: change in worst-class coverage relative to
@@ -112,16 +76,27 @@ held-out classes an informative threshold and still score exactly zero.}
 
 \Cref{tab:competitors} is our main comparison. PCC improves worst-class coverage on the
 held-out classes by $0.075$, which is $70\%$ of the oracle ceiling, while the best competitor
-reaches $0.027$ and five of the seven change the statistic by exactly zero. Paired over
-splits, PCC exceeds five of the seven with intervals excluding zero; against the two moving
-variants of \textsc{Fuzzy} CP the differences are positive, at $0.049$ and $0.072$, but their
-intervals include zero at three splits. Three aspects of the table need comment.
+reaches $0.027$ and six of the eight change the statistic by exactly zero. Paired over
+splits, PCC exceeds those six with intervals excluding zero; against the two moving variants
+of \textsc{Fuzzy} CP the differences are positive, at $0.049$ and $0.072$, but their intervals
+include zero at three splits. Three aspects of the table need comment.
 
 \paragraph{Undefined thresholds.} \textsc{Classwise} CP and \textsc{Rc3p} return an infinite
 threshold for all $300$ held-out classes, and the \textsc{Rc3p} implementation prints a warning
 to that effect for each one. Their entry of zero records the pre-registered fallback to the
 marginal threshold, and the methods themselves have nothing to say about these classes, which
 is the distinction \cref{tab:methods} is meant to make visible.
+
+\paragraph{Methods that are defined here and still do not move.} Three of the eight need no
+per-class calibration examples, so their zeros are measurements and not fallbacks.
+\textsc{Clustered} CP places every held-out class in its null cluster, which is the marginal
+threshold by construction. \textsc{Interp-Q} is the more interesting case. Its rule for an
+undefined classwise quantile is to replace it with one, the largest value the softmax score
+can take, and then blend; a held-out class therefore receives the widest threshold in the
+label space, and once average set size is matched back down every other class pays for it.
+Sweeping the interpolation weight over $\{0,0.5,0.9,0.99,0.999,1\}$ and keeping the best, the
+selected weight is zero on every split, at which point the method is \textsc{Standard} CP. The
+construction that makes it defined at $n_y=0$ is the same one that makes it unhelpful there.
 
 \paragraph{Prevalence-based and random embeddings.} \textsc{Fuzzy} CP with the rarity
 projection reaches $0.003$ and is beaten by the same method with a random projection, at
@@ -290,12 +265,21 @@ needs at least $p+2$ labelled classes, which is eleven in our configuration.
 \subsection{Score functions and miscoverage level}
 \label{sec:scores}
 
-\Cref{tab:depth} sweeps the score function and $\alpha$. The correction survives all four
-scores but is strongest with LAC and attenuates for the adaptive ones. A plausible mechanism
-is that APS, RAPS and SAPS already reshape the score using rank or cumulative mass, so part of
-the class-difficulty signal that $\delta_y$ captures has been absorbed into the score itself.
-At $\alpha=0.01$ the effect is exactly zero, which is consistent with the per-class offsets
+\Cref{tab:depth} sweeps the score function and $\alpha$. The correction survives every score
+but is strongest with LAC and attenuates for the adaptive ones. A plausible mechanism is that
+APS, RAPS and SAPS already reshape the score using rank or cumulative mass, so part of the
+class-difficulty signal that $\delta_y$ captures has been absorbed into the score itself. At
+$\alpha=0.01$ the effect is exactly zero, which is consistent with the per-class offsets
 becoming indistinguishable from noise as the quantile moves into the extreme tail.
+
+The prevalence-adjusted score of \citet{ding2026conformal} is included because it is the other
+published construction that remains defined for a class with no calibration examples, and
+because a reader may reasonably ask whether it removes the need for a per-class correction. It
+does not, though the reading is not a clean win either: on PAS scores our improvement is
+$0.066$ with an interval that contains zero, and the oracle ceiling rises to $0.234$, so PAS
+opens more room than LAC does and we take a smaller share of it, $28\%$ against $42\%$. Both
+observations are consistent with prevalence carrying real but coarse information about class
+difficulty, which is what \cref{tab:ablation} finds from the descriptor side.
 
 \begin{table}[t]
 \centering
@@ -310,6 +294,7 @@ Axis & Setting & $\Delta$ worst-class & \% ceiling \\
  & SAPS \cite{huang2024conformal}               & $+0.031\ [-0.019,+0.081]$ & $24$ \\
  & APS \cite{romano2020classification}          & $+0.022\ [+0.004,+0.040]$ & $15$ \\
  & RAPS \cite{angelopoulos2021uncertainty}      & $+0.010\ [-0.009,+0.029]$ & $10$ \\
+ & PAS \cite{ding2026conformal}                 & $+0.066\ [-0.017,+0.149]$ & $28$ \\
 \midrule
 \multirow{3}{*}{$\alpha$}
  & $0.10$ & $\mathbf{+0.058}\ [+0.006,+0.110]$ & $42$ \\

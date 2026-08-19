@@ -47,6 +47,52 @@ also load-bearing: an earlier version of our code selected $\lambda$ over all cl
 the held-out ones, which does not merely bias an estimate but removes the premise, and it moved
 the reported effect from $0.3$ to $0.5$ on the diagnostic we caught it with.
 
+\section{Evaluation metrics}
+\label{app:metrics}
+
+\Cref{tab:metrics} defines every quantity reported in the paper. The two regimes are the part
+that matters: above a median of $30$ evaluation examples per class we report per-class worst
+coverage, and below it a prevalence-binned surrogate, with the threshold fixed before any run
+(\cref{app:prereg}).
+
+% ---------------------------------------------------------------- metrics
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Metric & Definition \\
+\midrule
+$\hat c_y$ (class coverage)
+  & $\frac{1}{|J_y|}\sum_{i\in J_y}\mathbf{1}\{Y_i\in\mathcal{C}(X_i)\}$ \\[2pt]
+Worst-class (regime A)
+  & $\min_{y}\hat c_y$ \\[2pt]
+Bin-worst (regime B)
+  & $\min_{b}\hat c^{(b)}$, prevalence bins $b$ \\[2pt]
+$\Delta$ worst-class
+  & worst-class, method $-$ marginal, matched size \\[2pt]
+Below target
+  & $\frac{1}{|\mathcal{Y}|}\sum_y\mathbf{1}\{\hat c_y<1-\alpha\}$ \\[2pt]
+SSCV
+  & $\max_{b}\bigl|\hat c^{(b)}-(1-\alpha)\bigr|$, set-size strata \\[2pt]
+Worst-slab
+  & $\min$ mean $\hat c_y$ over prevalence windows \\[2pt]
+Average set size
+  & $\frac{1}{N}\sum_i|\mathcal{C}(X_i)|$ \\[2pt]
+Empty-set rate
+  & $\frac{1}{N}\sum_i\mathbf{1}\{|\mathcal{C}(X_i)|=0\}$ \\
+\bottomrule
+\end{tabular}
+\caption{Evaluation metrics. $J_y$ is the set of test indices with label $y$ and $N$ the
+number of test points. Bins and strata are pooled groups, used where a per-class estimate is
+too noisy to report: prevalence bins require $200$ test rows each and set-size strata $30$.
+The empty-set rate is included because an average set size below one is only possible when a
+substantial share of test points receive nothing, a regime in which coverage and set size both
+merely look low.}
+\label{tab:metrics}
+\end{table}
+
 \section{Pre-registration and the fallback policy}
 \label{app:prereg}
 
@@ -441,9 +487,49 @@ per class: the reuse variant fits on $174$ calibration examples per class and th
 variants on $131$ and $87$. \Cref{tab:depth} puts the price of that at roughly $0.019$ per
 halving. We report two fractions rather than one so that the choice cannot be read as tuned.
 
-\TODO{Fill from phase R of notebook 13: marginal coverage at the emitted thresholds against
-the $1-\alpha$ target for all three arms, and $\Delta$ worst-class paired over the ten splits.
-CPU-only.}
+\Cref{tab:split} reports both arms against the reuse variant over ten paired splits.
+Satisfying the premise removes the deficit and costs nothing measurable. At a quarter of the
+calibration rows held back, marginal coverage moves from $0.8994$ to $0.9011$ against a target
+of $0.900$, and the deficit relative to the marginal threshold on the same rows falls from
+$0.0018$ to zero at four decimal places. Paired split by split the improvement in marginal
+coverage is $+0.00161$ with interval $[+0.00084,+0.00239]$, which excludes zero, while the
+change in worst-class coverage is $+0.0048$ with interval $[-0.0046,+0.0142]$, which does not.
+
+We expected the split to cost something, since $g_\theta$ loses a quarter of its calibration
+depth, and within the resolution of ten splits it does not. The likely reason is visible in
+\cref{tab:depth}: worst-class improvement is flat between $100$ and $175$ calibration examples
+per class, and the split moves us from $174$ to $131$, which is inside that flat region. At
+half the rows held back, leaving $87$ per class, the point estimate does fall back to the
+reuse level, which is the direction the depth curve predicts.
+
+The recommendation that follows is to use the split variant. It is what \cref{prop:marginal}
+covers, its coverage lands on target rather than below it, and the price at a quarter is not
+measurable here. We report the main tables under the reuse configuration only because that is
+what every earlier run used, and rerunning $228$ configurations to move a headline by $0.005$
+would not change any conclusion in this paper.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Variant & Recal.\ rows & Marg.\ cov. & Deficit & $\Delta$ worst-class \\
+\midrule
+Reuse            & $0$      & $0.8994$ & $-0.0018$ & $+0.0588$ \\
+Split, $25\%$    & $30{,}5$k & $\mathbf{0.9011}$ & $\mathbf{-0.0000}$ & $+0.0636$ \\
+Split, $50\%$    & $61{,}1$k & $0.9003$ & $-0.0007$ & $+0.0585$ \\
+\midrule
+Target           & ---      & $0.9000$ & ---       & --- \\
+\bottomrule
+\end{tabular}
+\caption{\textsc{Pcc}-split against reuse, ten paired splits on ImageNet at $\alpha=0.10$.
+``Deficit'' is marginal coverage minus that of the marginal threshold measured on the same
+evaluation rows, so it isolates the optimism from reusing calibration rows rather than the
+finite-sample slack common to both. $\Delta$ worst-class is the matched-size statistic used
+throughout the paper.}
+\label{tab:split}
+\end{table}
 
 \section{The row budget, and whether the results depend on it}
 \label{app:rowbudget}
@@ -470,13 +556,45 @@ calibration depth, from $0.033$ at ten examples per class to $0.059$ at $175$, a
 \cref{fig:evaldepth} shows the measurable effect rising with evaluation depth. A larger budget
 should therefore give a \emph{larger} number, which would make $250{,}000$ conservative.
 
-\TODO{Fill from phase M of notebook 13, which sweeps the budget over $250$k, $500$k and $750$k
-rows at five splits each, giving $174$, $349$ and $525$ calibration examples per class and
-$75$, $150$ and $225$ evaluation examples. Report $\Delta$ worst-class at each budget with its
-interval, and the slope against $\log$ rows. If the slope is positive the prediction above
-holds and the reported numbers are conservative; if it is negative the headline depends on the
-subsample and that belongs in \cref{sec:discussion} rather than here. The full dump is not in
-the sweep because its peak footprint is $9.7$\,GB.}
+\Cref{tab:rowbudget} sweeps the budget over a factor of three, at five splits each. The
+prediction above is not what we found, and neither is its opposite. The improvement does not
+vary detectably with the budget: the three point estimates are $0.058$, $0.050$ and $0.076$,
+each of them lies inside the confidence intervals of the other two, and the regression of the
+improvement on $\log$ rows gives a slope of $+0.013$ per $e$-fold, which five splits cannot
+distinguish from zero. The middle budget is the lowest of the three, so the sequence is not
+even monotone.
+
+For the question this section exists to answer, that is a better result than the one we
+predicted. The row budget was chosen for a practical reason, and the measurement says the
+choice does not determine the conclusion over the range we can afford to test. The paper's
+headline is not an artefact of the subsample.
+
+One trend in the table is real and is a consequence of the paper's own argument. The oracle
+ceiling falls as the budget grows, from $0.140$ to about $0.116$. Worst-class coverage is a
+minimum over three hundred classes, and a minimum computed from $76$ evaluation examples per
+class is more extreme than one computed from $228$, for the method and for the oracle alike.
+Deeper evaluation makes the statistic less noisy and therefore less generous, which is the
+same effect \cref{fig:evaldepth} measures from the other direction.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}rccll@{}}
+\toprule
+Rows & Cal./class & Eval./class & $\Delta$ worst-class & Ceiling \\
+\midrule
+$250$k & $177$ & $\ 76$ & $+0.058\ [+0.006,+0.110]$ & $+0.140$ \\
+$500$k & $354$ & $152$ & $+0.050\ [+0.011,+0.089]$ & $+0.105$ \\
+$750$k & $532$ & $228$ & $+0.076\ [+0.034,+0.118]$ & $+0.116$ \\
+\bottomrule
+\end{tabular}
+\caption{The row budget swept over a factor of three, five splits each, everything else at the
+primary configuration. No point estimate falls outside the intervals of the other two. The
+$250$k row reproduces the corresponding entry of \cref{fig:heldout} to four decimal places,
+which is the check that the sweep shares the configuration of the rest of the paper.}
+\label{tab:rowbudget}
+\end{table}
 
 \section{Descriptor choices}
 \label{app:descriptors}
@@ -496,10 +614,42 @@ nearest-row distance and the margin. The cross-validated error of $g_\theta$ is 
 splits, at $0.0356$ to $0.0372$ over the five ImageNet splits, and the selected $\lambda$ is
 $0.1$ in all five, which is the sense in which the fit is not delicate.
 
-\TODO{Fill from the descriptor-sensitivity run: Euclidean in place of cosine, the head bias
-dropped, and neighbour counts $\{1,2,5\}$ and $\{10,20,100\}$ in place of $\{5,10,50\}$, each at
-five splits. Report $\Delta$ worst-class and the ridge coefficients so a reader can see which
-features the fit actually uses.}
+\Cref{tab:descriptors} varies the three choices a reader is most likely to question, at five
+splits each. The metric matters and the other two do not. Replacing cosine distances with
+Euclidean ones costs $0.013$ of worst-class improvement and raises the cross-validated error of
+$g_\theta$ from $0.036$ to $0.040$, which is the only arm where the regression measurably
+degrades. Dropping the head bias and changing the neighbour counts leave both quantities where
+they were.
+
+Two of those arms return numbers identical to the default at four decimal places, and that is
+worth explaining rather than presenting as three independent confirmations. Worst-class
+coverage is a minimum over three hundred classes estimated from about $76$ evaluation examples
+each, so it is a coarse statistic dominated by one badly covered class. The feature sets do
+differ and so do the fitted regressions, but neither change moves that particular class into or
+out of a different coverage bucket. The honest reading is that the result is insensitive to
+these two choices, not that they have no effect on $g_\theta$.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Descriptor set & $\Delta$ worst-class & CV error \\
+\midrule
+Cosine, all features   & $+0.058\ [+0.006,+0.110]$ & $0.036$ \\
+Euclidean distances    & $+0.045\ [+0.009,+0.081]$ & $0.040$ \\
+Without the head bias  & $+0.058\ [+0.006,+0.110]$ & $0.036$ \\
+Neighbours $k\in\{1,2,5\}$        & $+0.058\ [+0.006,+0.110]$ & $0.036$ \\
+Neighbours $k\in\{1,10,20,100\}$  & $+0.063\ [+0.016,+0.111]$ & $0.036$ \\
+\bottomrule
+\end{tabular}
+\caption{Descriptor choices, five splits each on held-out ImageNet classes. ``CV error'' is the
+cross-validated mean squared error of $g_\theta$ on the labelled classes. The neighbour count
+held out as the distance baseline follows the smallest $k$ requested, so each arm withholds its
+own feature and none is advantaged.}
+\label{tab:descriptors}
+\end{table}
 
 \section{Runtime}
 \label{app:runtime}

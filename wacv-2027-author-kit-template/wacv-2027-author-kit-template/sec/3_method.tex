@@ -193,12 +193,14 @@ redefines the score.
 configuration used for every table in \cref{sec:exp} does not provide them: $g_\theta$,
 $\lambda$ and $c$ are all estimated on the same calibration rows, so $\tilde\delta$ and $c$ are
 dependent and the proposition does not apply as stated. We report the size of the resulting
-optimism instead of assuming it away. On ten ImageNet splits, at the thresholds as they are
-emitted, the marginal threshold covers $0.9013$ and \textsc{Pcc} covers $0.8989$ against a
-target of $0.900$, so the reuse costs about $0.0024$ of marginal coverage, roughly thirty times
-the finite-sample slack $1/(n+1)$ at our calibration sizes. \textsc{Pcc}-split, which divides
-the calibration rows in two and satisfies the premise exactly, is reported in
-\cref{app:split}.
+optimism, and what removing it costs. On ten ImageNet splits, at the thresholds as they are
+emitted, \textsc{Pcc} covers $0.8994$ where the marginal threshold covers $0.9012$ on the same
+rows, so the reuse costs $0.0018$ of marginal coverage, roughly twenty times the finite-sample
+slack $1/(n+1)$ at our calibration sizes. \textsc{Pcc}-split holds a quarter of the calibration
+rows back for $c$ alone, which satisfies the premise, and it removes that deficit entirely
+while changing worst-class coverage by $+0.005$ with an interval containing zero
+(\cref{app:split}). The tables below use the reuse configuration because it is what every
+earlier run used; the split variant is the one we would recommend deploying.
 
 \paragraph{Scope of the claim.} There is no finite-sample class-conditional guarantee for a
 class with $n_y=0$, and there cannot be one for any method, since with no labelled example of

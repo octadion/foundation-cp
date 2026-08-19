@@ -10,20 +10,18 @@ that require no labels at all.
 We propose Predicted Class Correction (PCC), which regresses the offset between the per-class
 and the marginal conformal quantile on geometric descriptors of the classifier head, shrinks
 the prediction by a scalar selected on the labelled classes, and refits a single marginal
-offset. Because the descriptors are functions of the model's weights, a class with zero
-calibration examples still receives a threshold specific to it, and because only one scalar is
-calibrated, the marginal coverage guarantee is retained
-(Prop.~\ref{prop:marginal}).
+offset. The descriptors are functions of the model's weights, so a class with zero
+calibration examples still receives a threshold specific to it, and only one scalar is
+calibrated, so the marginal coverage guarantee is retained (Prop.~\ref{prop:marginal}).
 %
-On ImageNet, PCC improves worst-class coverage on classes with zero calibration examples by
-$0.075$ at matched average set size, which is $70\%$ of an oracle that observes the test
-labels, while the strongest of the seven competitors we evaluate gains $0.027$ and two are
-undefined on all $300$ such classes. The improvement persists when $90\%$ of classes are held
-out, leaving $100$ labelled classes out of $1000$.
+On ImageNet, PCC improves worst-class coverage on such classes by $0.075$ at matched average
+set size, $70\%$ of an oracle that observes the test labels, while the strongest of eight
+competitors gains $0.027$ and two are undefined on all $300$ of them. The improvement
+persists with only $100$ labelled classes out of $1000$.
 %
-We also study where the approach stops working, and find that the limit is a property of
-the evaluation set. Below roughly $35$ test examples per class the oracle ceiling itself
-falls to zero, so no method can be shown to help there. Restricting
-evaluation to classes above that threshold recovers a significant improvement on
-Pl@ntNet-300K, where the effect had appeared to be absent.
+We also study where the approach stops working, and find the limit to be a property of the
+evaluation set: below roughly $35$ test examples per class the oracle ceiling itself falls to
+zero, so no method can be shown to help. Restricting evaluation to classes above that
+threshold recovers a significant improvement on Pl@ntNet-300K, where the effect had appeared
+absent.
 \end{abstract}

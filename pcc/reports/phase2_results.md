@@ -508,3 +508,98 @@ Sekaligus: konfigurasi nb08 punya median **25 baris evaluasi per kelas** — reg
 ambang 30. Jadi efek ~nol PCC di sana **tidak informatif tentang PCC**, dan itu adalah
 **instansi kelima** dari pola kedalaman evaluasi, ditemukan sebelum polanya dipahami. Itu
 sebagian alasan diagnosisnya butuh tiga percobaan.
+
+---
+
+# Notebook 13 — addenda ulasan (2026-08-19, 73 run, GAGAL 0)
+
+## 1. Premis Proposisi 1 GRATIS
+
+Sepuluh split berpasangan, 250k baris, `frac_cal=0.70`.
+
+| lengan | baris recal | cov marginal | defisit vs dasar | Δ worst |
+|---|---|---|---|---|
+| `reuse` | 0 | 0,8994 | **−0,0018** | +0,0588 |
+| `split0p25` | ~30,5k | 0,9011 | **−0,0000** | +0,0636 |
+| `split0p5` | ~61,1k | 0,9003 | −0,0007 | +0,0585 |
+
+Berpasangan, `split0p25` vs `reuse`: coverage marginal **+0,00161 [+0,00084, +0,00239]**
+(mengecualikan nol), Δ worst **+0,0048 [−0,0046, +0,0142]** (memuat nol).
+
+Memenuhi premisnya menghapus defisit dan tidak menelan biaya terukur. Kuduga akan ada biaya
+karena `g_theta` kehilangan seperempat kedalaman kalibrasi (174 → 131 baris/kelas), dan pada
+resolusi sepuluh split tidak ada. `tab:depth` menjelaskan kenapa: kurva kedalaman datar antara
+100 dan 175, dan 131 ada di dalam daerah datar itu. Pada 0,50 (87 baris/kelas) estimasi titiknya
+memang kembali ke tingkat `reuse` — arah yang diramalkan kurva itu.
+
+**Rekomendasi: pakai varian split.** Tabel utama tetap `reuse` karena itu yang dipakai semua
+run sebelumnya, dan menjalankan ulang 228 konfigurasi untuk menggeser headline sebesar 0,005
+tidak mengubah kesimpulan mana pun.
+
+## 2. Anggaran baris TIDAK menentukan kesimpulan
+
+| baris | cal/kelas | eval/kelas | Δ worst | plafon |
+|---|---|---|---|---|
+| 250k | 177 | 76 | +0,058 [+0,006, +0,110] | +0,140 |
+| 500k | 354 | 152 | +0,050 [+0,011, +0,089] | +0,105 |
+| 750k | 532 | 228 | +0,076 [+0,034, +0,118] | +0,116 |
+
+**Tidak monoton**, dan tiap estimasi titik jatuh di dalam interval kedua yang lain. Kemiringan
++0,013 per e-fold tidak bisa dibedakan dari nol pada lima split.
+
+Versi pertama sel ringkasan mencetak "NAIK → 250k konservatif" hanya dari tanda kemiringannya.
+**Itu klaim yang tidak ditanggung data**, dan logikanya sudah diganti menjadi uji tumpang-tindih
+interval. Yang boleh diklaim: anggaran baris tidak menentukan kesimpulan pada rentang 3× ini.
+
+Plafon oracle **turun** dengan anggaran (0,140 → 0,116). Itu konsisten dengan tesis paper
+sendiri: minimum atas 300 kelas dari 76 baris evaluasi lebih ekstrem daripada dari 228, untuk
+metode maupun oracle.
+
+Validasi: `rows250000` memberi +0,0580 [+0,0061, +0,1099], persis `ho0p3` di `fig:heldout`.
+
+## 3. INTERP-Q terdefinisi di n_y=0, dan tetap tidak bergerak
+
+Memilih **τ=0 di setiap split**, yang berarti ia runtuh menjadi STANDARD CP, dan mencetak
++0,0000 dengan 0/300 tak terdefinisi. Bukan bug: aturannya mengganti kuantil classwise yang
+tak terdefinisi dengan **1**, nilai terbesar yang bisa diambil skor softmax, jadi kelas
+held-out menerima ambang terlebar di seluruh ruang label — dan begitu ukuran set dicocokkan
+kembali, semua kelas lain yang membayar. Konstruksi yang membuatnya terdefinisi di `n_y=0`
+adalah konstruksi yang sama yang membuatnya tidak menolong di sana.
+
+Tabel pesaing jadi delapan metode; **enam** memberi tepat nol, terbaik tetap fuzzy-random
++0,0265, PCC +0,0751 (70% plafon). Ukuran set target dikoreksi 1,223 → **1,221**.
+
+## 4. PAS membuka lebih banyak ruang, PCC mengambil lebih sedikit
+
++0,0659 **[−0,0171, +0,1488]** — tidak signifikan. Plafonnya +0,2341 lawan +0,1396 untuk LAC,
+jadi PAS memberi lebih banyak ruang dan kita hanya mengambil 28% (lawan 42%). Konsisten dengan
+prevalensi membawa informasi nyata tapi kasar tentang kesulitan kelas — sama dengan yang
+ditemukan ablasi deskriptor dari sisi lain.
+
+## 5. Deskriptor: metrik penting, bias dan jumlah tetangga tidak
+
+| lengan | Δ worst | MSE CV `g_theta` |
+|---|---|---|
+| cosine, semua fitur | +0,058 [+0,006, +0,110] | 0,036 |
+| **Euclidean** | **+0,045 [+0,009, +0,081]** | **0,040** |
+| tanpa bias kepala | +0,058 [+0,006, +0,110] | 0,036 |
+| tetangga {1,2,5} | +0,058 [+0,006, +0,110] | 0,036 |
+| tetangga {1,10,20,100} | +0,063 [+0,016, +0,111] | 0,036 |
+
+Tiga lengan identik sampai empat desimal dengan default. Bukan cache: daftar fiturnya berbeda
+dan `mse_g` bergeser. Sebabnya worst-class adalah minimum atas 300 kelas dari ~76 baris
+evaluasi — statistik kasar yang didominasi satu kelas buruk, dan kedua perubahan itu tidak
+memindahkannya ke bucket coverage lain. Bacaan jujurnya: hasilnya **tidak sensitif** terhadap
+dua pilihan itu, bukan bahwa keduanya tidak berpengaruh pada `g_theta`.
+
+## 6. Crash-nya: fase K, kumulatif
+
+RSS 1,17 GB (fase R, semua cache) → **7,45 GB** setelah pesaing seed 1 → **12,95 GB** setelah
+seed 2, lalu tidak pernah turun sampai akhir. Tiap run pesaing meninggalkan ~5,5 GB yang tidak
+dikembalikan; di mesin 12 GB ia mati tepat di seed 2.
+
+Model footprint-ku salah: kuprediksi 2,28 GB untuk 250k, terukur 16,4 GB. Kesalahannya bukan
+pada kerja per-run — 16,41 − 12,95 = 3,46 GB, dekat dengan prediksi — melainkan asumsi bahwa
+RSS kembali ke dasar antar run.
+
+**Prosedur: jalankan fase K di sesi sendiri.** Resume sudah teruji, jadi itu gratis.
