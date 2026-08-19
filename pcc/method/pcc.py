@@ -503,7 +503,8 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
             stat: str = "worst", n_folds: int = 5, n_star_rule: str = "oos",
             class_counts: Optional[np.ndarray] = None,
             lam_override: Optional[float] = None,
-            recalibrate: bool = True, seed: int = 0) -> PCCModel:
+            recalibrate: bool = True, seed: int = 0,
+            score_matrix_recal=None, labels_recal=None) -> PCCModel:
     """Fit the whole method on the FIT slice and the TRAIN label space only.
 
     `score_matrix_fit` / `labels_fit` must be disjoint from whatever slice the results
@@ -654,10 +655,30 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
     # at all, so those rows do not exist to calibrate on. The consequence must be
     # stated in the paper rather than glossed — the marginal guarantee is over the
     # SEEN-class distribution, not the full population.
+    # WHICH ROWS MAY c BE FIT ON? Proposition 1 needs the rows behind delta_tilde and the
+    # rows behind c to be DISJOINT. Passing `score_matrix_recal` supplies that second slice
+    # and is the only configuration the proposition actually covers. Leaving it None reuses
+    # the fit rows, which is what every run before 2026-08-19 did; the optimism that costs
+    # is measured rather than assumed (reports/phase2_results.md).
     offset = 0.0
+    recal_rows = None
     if recalibrate:
         t_all = corrected_thresholds(q_global, blend["delta"])
-        offset = recalibrate_marginal(S_tr, y_tr, t_all[ids_tr], alpha)
+        if score_matrix_recal is not None:
+            if labels_recal is None:
+                raise ValueError("score_matrix_recal needs labels_recal")
+            S_rc, y_rc, K_rc, ids_rc = restrict_to_classes(
+                np.asarray(score_matrix_recal), np.asarray(labels_recal, int), tr)
+            if len(y_rc) < 2:
+                raise ValueError(
+                    "the recalibration slice holds {} rows of the train label space; a "
+                    "conformal quantile there is meaningless. Lower --frac-recal."
+                    .format(len(y_rc)))
+            offset = recalibrate_marginal(S_rc, y_rc, t_all[ids_rc], alpha)
+            recal_rows = int(len(y_rc))
+        else:
+            offset = recalibrate_marginal(S_tr, y_tr, t_all[ids_tr], alpha)
+            recal_rows = int(len(y_tr))
 
     return PCCModel(
         gtheta=g, q_global=float(q_global), alpha=float(alpha),
@@ -676,7 +697,11 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
             "lambda_selection_stat": sel_stat,
             "lambda_selection_stat_downgraded": bool(sel_stat != stat),
             "marginal_offset_recalibrated": bool(recalibrate),
-            "marginal_offset_fit_on": "TRAIN-class rows only",
+            "marginal_offset_fit_on": ("TRAIN-class rows, DISJOINT recalibration slice"
+                                       if score_matrix_recal is not None else
+                                       "TRAIN-class rows, SAME slice as g_theta/lambda"),
+            "marginal_offset_rows": recal_rows,
+            "prop1_premise_holds": bool(score_matrix_recal is not None),
             "claims": ("marginal coverage over the SEEN-class distribution by "
                        "construction; empirical class equity at matched size. NOT "
                        "classwise validity — impossible at n_y=0."),

@@ -132,9 +132,39 @@ SCORE_FNS = {
 }
 
 
-def score_matrix(probs: np.ndarray, name: str = "thr", *, seed: int = 42) -> np.ndarray:
+def pas_scores(probs, priors):
+    """Prevalence-adjusted softmax, Ding et al. Transcribed from `compute_PAS_scores` in
+    their released `example.ipynb`:
+
+        return - softmax_scores / class_distribution
+
+    The prior is the class distribution of the TRAINING labels, which exists for a class
+    with no calibration examples, so PAS is one of the few published constructions that is
+    defined in our regime. Larger means less conforming, matching the convention of every
+    other score here, because the leading minus flips the ordering of p(y|x)/p(y).
+    """
+    p = np.asarray(probs)
+    pr = np.asarray(priors, float).reshape(-1)
+    if pr.size != p.shape[1]:
+        raise ValueError("priors has {} entries, probs has {} columns".format(
+            pr.size, p.shape[1]))
+    if not np.isfinite(pr).all() or (pr <= 0).any():
+        raise ValueError("priors must be finite and strictly positive; a class with prior "
+                         "zero would give an infinite PAS score")
+    out = np.empty(p.shape, dtype=p.dtype)
+    for i in range(0, p.shape[0], CHUNK_ROWS):
+        out[i:i + CHUNK_ROWS] = -(p[i:i + CHUNK_ROWS] / pr)
+    return out
+
+
+def score_matrix(probs: np.ndarray, name: str = "thr", *, seed: int = 42,
+                 priors=None) -> np.ndarray:
     """Dispatch by name, so a driver can sweep the score function as an axis."""
+    if name == "pas":
+        if priors is None:
+            raise ValueError("score 'pas' needs class priors; pass priors=")
+        return pas_scores(probs, priors)
     if name not in SCORE_FNS:
         raise ValueError("unknown score {!r}; available: {}".format(
-            name, sorted(SCORE_FNS)))
+            name, sorted(SCORE_FNS) + ["pas"]))
     return SCORE_FNS[name](np.asarray(probs), seed=seed)

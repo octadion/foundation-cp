@@ -482,6 +482,11 @@ FUZZY_BANDWIDTHS = (1e-5, 1e-3, 1e-2, 1e-1, 10.0)
 COMPETITOR_COST = ("~25 min/run at 122k cal rows and K=1000; ~3 min at 14k rows. "
                    "Dominated by fuzzy_classwise_CP: 15 candidates x ~99 s.")
 
+# Ding et al. sweep tau over {0, .25, .5, .75, .9, .95, .975, .99, .999, 1}. We keep the
+# end points and the values where their own figures show the size/coverage trade-off
+# actually turning; as with the fuzzy bandwidth the BEST is kept, which favours them.
+INTERP_Q_WEIGHTS = (0.0, 0.5, 0.9, 0.99, 0.999, 1.0)
+
 
 def _competitor_thresholds(ltc_root, S_cal, y_cal, K, alpha, seed, P_cal=None,
                            class_counts=None, tmp_dir=None):
@@ -569,6 +574,40 @@ def _competitor_thresholds(ltc_root, S_cal, y_cal, K, alpha, seed, P_cal=None,
         cnt = np.asarray(class_counts, int)
         rarity_path = str(Path(tmp_dir) / "ltc_train_labels.npy")
         np.save(rarity_path, np.repeat(np.arange(len(cnt)), cnt))
+
+    # INTERP-Q, Ding et al.'s second proposed method. Transcribed from `interpQ` in their
+    # released example.ipynb: the classwise quantile with its infinities replaced by one --
+    # the maximum of the softmax score -- then linearly blended with the marginal quantile.
+    # Their own compute_qhat does both quantiles, so this is their arithmetic on their
+    # estimates. Unlike classwise CP it is DEFINED at n_y = 0, which is why the review is
+    # right that it belongs in the table: the cap gives every empty class the value one and
+    # the blend pulls it back towards q_hat.
+    #
+    # cw and std do not depend on the weight, so they are computed once and the six weights
+    # are six vector combinations. Recomputing them per weight would cost K quantile calls
+    # each and turn a second into minutes at K=8142.
+    def _interp_q_parts():
+        std = float(np.atleast_1d(np.asarray(
+            cu.compute_qhat(S_cal, y_cal, alpha), dtype=float)).ravel()[0])
+        cw = np.full(K, np.inf)
+        for k in range(K):
+            m = y_cal == k
+            if not m.any():
+                continue
+            cw[k] = float(np.atleast_1d(np.asarray(
+                cu.compute_qhat(S_cal[m], y_cal[m], alpha), dtype=float)).ravel()[0])
+        cw[~np.isfinite(cw)] = 1.0
+        return cw, std
+
+    try:
+        _cw, _std = _interp_q_parts()
+    except Exception as e:                                           # noqa: BLE001
+        errs["interp_q"] = type(e).__name__ + ": " + str(e)[:200]
+        _cw = None
+    if _cw is not None:
+        for tau in INTERP_Q_WEIGHTS:
+            _try("interp_q", (lambda t=tau: t * _cw + (1.0 - t) * _std),
+                 label="tau={}".format(tau))
 
     projections = ["quantile", "random"] + (["rarity"] if rarity_path else [])
     for bw in FUZZY_BANDWIDTHS:
@@ -661,12 +700,24 @@ def run(args) -> dict:
     # three slices: APS/RAPS/SAPS are randomized, and drawing fresh uniforms per slice
     # would make calibration and evaluation disagree about the same point.
     score = getattr(args, "score", "thr")
-    if score not in SCORE_FNS:
+    if score not in SCORE_FNS and score != "pas":
         raise ValueError("unknown --score {!r}; available: {}".format(
-            score, sorted(SCORE_FNS)))
+            score, sorted(SCORE_FNS) + ["pas"]))
+
+    # PAS is Ding et al.'s prevalence-adjusted softmax, s = -p(y|x)/p(y). Its prior comes
+    # from the TRAIN label counts, which exist for a class with no calibration rows, so it
+    # is one of the few published scores that is defined in our regime -- and a reviewer
+    # asked for exactly this comparison. The counts are the same ones that feed
+    # log_prevalence, so the two constructions see identical information.
+    _priors = None
+    if score == "pas":
+        c = np.asarray(cnt_full, float)
+        if c.sum() <= 0:
+            raise ValueError("--score pas needs class counts; this dump reports none")
+        _priors = np.maximum(c, 1.0) / max(c.sum(), 1.0)
 
     def _sc(P):
-        return score_matrix(P, score, seed=args.seed)
+        return score_matrix(P, score, seed=args.seed, priors=_priors)
 
     # EVALUATION DEPTH -- the mirror of cal_depth, and the axis every failure so far
     # points at. CCC works with 75-175 evaluation rows per class; the torchvision-backbone
@@ -683,8 +734,36 @@ def run(args) -> dict:
                           if len(idx) > args.eval_depth else idx)
         i_eval = np.sort(np.concatenate(keep_e)) if keep_e else i_eval
 
+    # PCC-SPLIT. Proposition 1 needs the rows behind delta_tilde and the rows behind the
+    # marginal offset c to be disjoint; with --frac-recal 0 they are the same rows, which
+    # is what every run before 2026-08-19 did and what reports/phase2_results.md measures
+    # the optimism of. A positive fraction carves the second slice PER CLASS, so no class
+    # loses its whole share, and the fit slice shrinks accordingly -- the cost is real and
+    # tab:depth says roughly what halving calibration depth costs.
+    i_recal = np.array([], int)
+    frac_recal = float(getattr(args, "frac_recal", 0.0) or 0.0)
+    if frac_recal > 0:
+        if not 0 < frac_recal < 1:
+            raise ValueError("--frac-recal must lie in (0,1), got {}".format(frac_recal))
+        rr2 = np.random.default_rng(args.seed + 4242)
+        fit_keep, rec_keep = [], []
+        for c in seen:
+            idx = i_cal_seen[y_all[i_cal_seen] == c]
+            rr2.shuffle(idx)
+            n_r = int(round(frac_recal * len(idx)))
+            rec_keep.append(idx[:n_r])
+            fit_keep.append(idx[n_r:])
+        i_recal = np.sort(np.concatenate(rec_keep)) if rec_keep else i_recal
+        i_cal_seen = np.sort(np.concatenate(fit_keep)) if fit_keep else i_cal_seen
+        if len(i_recal) < 2 or len(i_cal_seen) < 2:
+            raise ValueError(
+                "--frac-recal {} leaves {} fit rows and {} recalibration rows; both need "
+                "at least 2".format(frac_recal, len(i_cal_seen), len(i_recal)))
+
     S_cal = _sc(S_all[i_cal_seen])
     y_cal = y_all[i_cal_seen]
+    S_recal = _sc(S_all[i_recal]) if len(i_recal) else None
+    y_recal = y_all[i_recal] if len(i_recal) else None
     used_separate_eval = S_eval_sep is not None
     if S_eval_sep is None:
         S_ev = _sc(S_all[i_eval])
@@ -702,8 +781,10 @@ def run(args) -> dict:
     # A k-NN descriptor needs k neighbours to exist. K varies by dataset (1000 ImageNet,
     # 1081 Pl@ntNet, 8142 iNat, 100 CIFAR-100), so the k list is derived from K rather
     # than assumed — and which k were dropped is recorded, not silently swallowed.
-    knn_ks = tuple(k for k in (1, 5, 10, 50) if k <= K - 1)
-    knn_dropped = tuple(k for k in (1, 5, 10, 50) if k > K - 1)
+    ks_req = getattr(args, "knn_ks", None) or (1, 5, 10, 50)
+    ks_req = tuple(int(k) for k in ks_req)
+    knn_ks = tuple(k for k in ks_req if k <= K - 1)
+    knn_dropped = tuple(k for k in ks_req if k > K - 1)
     if not knn_ks:
         raise ValueError("K={} is too small for any k-NN descriptor".format(K))
 
@@ -712,7 +793,8 @@ def run(args) -> dict:
         b = np.load(args.head_bias) if args.head_bias else None
         if W.shape[0] != K:
             raise ValueError("head has {} classes, dump has {}".format(W.shape[0], K))
-        Phi, names = build_head_descriptors(W, b, knn_ks=knn_ks)
+        Phi, names = build_head_descriptors(
+            W, b, knn_ks=knn_ks, metric=getattr(args, "dist_metric", "cosine"))
         # The head family carries no prevalence feature, so splice in the TRUE dump
         # counts -- otherwise the prevalence ablation cannot be tested at all.
         Phi = np.column_stack([Phi, np.log(np.maximum(cnt_full, 1))])
@@ -748,6 +830,15 @@ def run(args) -> dict:
         raise ValueError("--distance-holdout {!r} is not a descriptor of the {!r} family; "
                          "available: {}".format(args.distance_holdout, args.phi, names))
     feats = [f for f in names if f != args.distance_holdout]
+    # --drop-features answers the review's question about individual descriptors (does the
+    # head bias matter?) without inventing a new feature_group for each combination. An
+    # unknown name is an error: silently dropping nothing would make the ablation look
+    # like it ran.
+    for d in (getattr(args, "drop_features", None) or ()):
+        if d not in names:
+            raise ValueError("--drop-features {!r} is not a descriptor; available: {}"
+                             .format(d, names))
+        feats = [f for f in feats if f != d]
     grp = getattr(args, "feature_group", "all")
     if grp == "distance":                 # ablasi E4: hanya jarak
         feats = [f for f in feats if "knn" in f]
@@ -780,6 +871,7 @@ def run(args) -> dict:
     # reporting. Without it fit_pcc falls back to p25 and says so.
     model = fit_pcc(Phi, names, delta_obs, n_per_class, q_global, args.alpha,
                     score_matrix_fit=S_cal, labels_fit=y_cal, train_classes=seen,
+                    score_matrix_recal=S_recal, labels_recal=y_recal,
                     features=feats, stat=args.stat, class_counts=cnt_full,
                     lam_override=getattr(args, "lam_override", None),
                     n_star_rule=getattr(args, "n_star_rule", "oos"),
@@ -815,6 +907,11 @@ def run(args) -> dict:
         "n_classes": K, "n_seen": int(len(seen)), "n_heldout": int(len(heldout)),
         "min_eval_rows": getattr(args, "min_eval_rows", None),
         "classes_dropped_too_thin_to_measure": n_dropped_thin,
+        "frac_recal": frac_recal,
+        "recal_rows": int(len(i_recal)),
+        "dist_metric": getattr(args, "dist_metric", "cosine"),
+        "knn_ks_requested": list(ks_req),
+        "dropped_features": list(getattr(args, "drop_features", None) or ()),
         "split_sizes": {"desc": int(len(i_desc)), "cal_seen": int(len(i_cal_seen)),
                         "eval": int(len(y_ev))},
         "eval_from_separate_dump": bool(used_separate_eval),
@@ -947,6 +1044,17 @@ def main(argv=None) -> int:
                    help="ablation: drop the marginal offset")
     p.add_argument("--feature-group", default="all",
                    choices=("all", "distance", "prevalence", "no_prevalence"))
+    p.add_argument("--frac-recal", type=float, default=0.0,
+                   help="PCC-split: fraction of each SEEN class's calibration rows held "
+                        "back so the marginal offset c is fit on rows disjoint from "
+                        "g_theta and lambda. 0 reuses the rows (the default everywhere "
+                        "before 2026-08-19) and does NOT satisfy Proposition 1.")
+    p.add_argument("--dist-metric", default="cosine", choices=("cosine", "euclidean"),
+                   help="metric for the neighbour descriptors")
+    p.add_argument("--knn-ks", default=None,
+                   help="comma-separated neighbour counts, e.g. 1,5,10,50")
+    p.add_argument("--drop-features", default=None,
+                   help="comma-separated descriptor names to remove, e.g. w_bias")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--name", default=None)
     p.add_argument("--print-json", action="store_true")
@@ -954,8 +1062,16 @@ def main(argv=None) -> int:
 
     if a.phi == "head" and not a.head_weights:
         p.error("--phi head requires --head-weights")
+    a.knn_ks = (tuple(int(x) for x in a.knn_ks.split(",") if x.strip())
+                if a.knn_ks else None)
+    a.drop_features = (tuple(x.strip() for x in a.drop_features.split(",") if x.strip())
+                       if a.drop_features else ())
     if a.distance_holdout is None:
-        a.distance_holdout = "w_cos_knn_1" if a.phi == "head" else "prof_knn_1"
+        # the held-out feature must exist in whatever ks were asked for, else the very
+        # first check in run() rejects the configuration
+        k0 = min(a.knn_ks) if a.knn_ks else 1
+        a.distance_holdout = ("w_cos_knn_{}".format(k0) if a.phi == "head"
+                              else "prof_knn_{}".format(k0))
     if bool(a.eval_scores) != bool(a.eval_labels):
         p.error("--eval-scores and --eval-labels must be given together")
 

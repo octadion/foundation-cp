@@ -50,22 +50,35 @@ def _unit_rows(W):
     return W / n
 
 
-def head_cos_knn(W, ks=(1, 5, 10, 50)):
-    """Mean cosine distance from each class's weight vector to its k nearest OTHER class
-    weight vectors. The decision-geometry analogue of `phi.cosine_knn_matrix`.
+def head_cos_knn(W, ks=(1, 5, 10, 50), metric="cosine"):
+    """Mean distance from each class's weight vector to its k nearest OTHER class weight
+    vectors. The decision-geometry analogue of `phi.cosine_knn_matrix`.
 
     Returned alongside `w_neigh_spread` (sd over the 50 nearest) because a class with one
     close competitor is a different geometric situation from one uniformly crowded, and
     δ_y should differ between them — a mean alone cannot separate those.
+
+    `metric` is an experimental axis, not a new feature family: the column NAMES are the
+    same either way, and which metric produced them is recorded in the run config. A
+    reviewer asked whether the choice matters; keeping the names fixed is what lets the
+    two runs be compared row by row.
     """
     W = np.asarray(W, float)
     K = W.shape[0]
     if K < 3:
         raise ValueError(f"need at least 3 classes for neighbour descriptors, got {K}")
-    Wn = _unit_rows(W)
-    sim = Wn @ Wn.T
-    np.fill_diagonal(sim, -np.inf)          # exclude self
-    dist = 1.0 - sim
+    if metric == "cosine":
+        Wn = _unit_rows(W)
+        sim = Wn @ Wn.T
+        np.fill_diagonal(sim, -np.inf)          # exclude self
+        dist = 1.0 - sim
+    elif metric == "euclidean":
+        sq = (W * W).sum(axis=1)
+        d2 = sq[:, None] + sq[None, :] - 2.0 * (W @ W.T)
+        dist = np.sqrt(np.maximum(d2, 0.0))
+        np.fill_diagonal(dist, np.inf)          # exclude self
+    else:
+        raise ValueError("unknown metric {!r}; use 'cosine' or 'euclidean'".format(metric))
     order = np.sort(dist, axis=1)
 
     # Only K-1 real neighbours exist; the self-distance is +inf and sorts LAST, so any
@@ -88,7 +101,7 @@ def head_cos_knn(W, ks=(1, 5, 10, 50)):
     return out
 
 
-def build_head_descriptors(W, b=None, *, knn_ks=(1, 5, 10, 50)):
+def build_head_descriptors(W, b=None, *, knn_ks=(1, 5, 10, 50), metric="cosine"):
     """φ(y) from a classifier head.
 
     `W` is `(n_classes, d)` — e.g. `state_dict['fc.weight']` of a torchvision ResNet-50,
@@ -114,7 +127,7 @@ def build_head_descriptors(W, b=None, *, knn_ks=(1, 5, 10, 50)):
     else:
         feat["w_cos_to_mean"] = 1.0 - (_unit_rows(W) @ (mean_w / mn))
 
-    feat.update(head_cos_knn(W, ks=knn_ks))
+    feat.update(head_cos_knn(W, ks=knn_ks, metric=metric))
 
     names = sorted(feat)
     Phi = np.column_stack([feat[n] for n in names])
