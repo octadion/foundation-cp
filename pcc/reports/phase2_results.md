@@ -407,3 +407,104 @@ terjawab oleh CCC ImageNet, di mana φ kepala memang eksogen dan hasilnya positi
 | Batas ditentukan keterukuran, bukan metode | **tertegakkan** — kurva kedalaman evaluasi, 5 titik, 5 seed, satu dump |
 | Besarnya efek naik dengan kedalaman kalibrasi | **tertegakkan** — 26% → 46% plafon, 10 seed, CI mengecualikan nol di kelima titik |
 | Berlaku lintas α | **tidak** pada α=0,05 sejauh ini |
+
+---
+
+# Tanggapan ulasan WACV (2026-08-19)
+
+Ulasan agen Stanford, **lean positive**, tanpa satu pun angka disanggah. Keberatannya soal
+kejelasan protokol, kelengkapan, dan cakupan pembanding. Empat temuan di bawah muncul saat
+menjawabnya, dan dua di antaranya **mengoreksi klaim paper**.
+
+## 1. Premis Proposisi 1 dilanggar oleh konfigurasi yang dipakai seluruh paper
+
+Ulasan menanyakan apakah baris yang membangun `delta_tilde` dan baris yang mengkalibrasi `c`
+terpisah. **Tidak.** Dibaca dari kode: `fit_pcc` dipanggil dengan
+`score_matrix_fit=S_cal, labels_fit=y_cal`, dan `g_theta`, `lambda`, `n_star`, serta offset
+marginal semuanya dihitung dari irisan CAL yang sama, dibatasi ke ruang label TRAIN.
+
+Yang **tidak** terjadi: kebocoran ke angka yang dilaporkan. Baris EVAL tak pernah disentuh
+proses fitting, dan kelas held-out tak pernah dipakai memilih apa pun. `frac_desc = 0.0`, jadi
+irisan DESC kosong dan tidak menolong di sini. Fungsi lama `setsize_translation_shrunk`
+memilih lambda di baris EVAL, tetapi jalur produksi tidak memakainya — sudah diperiksa.
+
+Yang terjadi: premis proposisi seperti tertulis di paper tidak terpenuhi, karena
+`delta_tilde` dan `c` bergantung pada baris yang sama. Besarnya optimisme **terukur**, dari
+nb09 (10 split, view tak-dicocokkan):
+
+| threshold apa adanya | coverage marginal | ukuran set |
+|---|---|---|
+| threshold marginal `q_hat` | 0,9013 | 1,21 |
+| PCC tanpa rekalibrasi | 0,8963 | 2,00 |
+| PCC dengan rekalibrasi | 0,8989 | 2,31 |
+| target | 0,9000 | — |
+
+Defisit 0,0024 terhadap dasar itu sekitar **tiga puluh kali** slack hingga-sampel `1/(n+1)`
+pada ukuran kalibrasi kita, jadi ia bukan derau. Perbaikannya `--frac-recal`, yang menyisihkan
+sebagian baris tiap kelas yang tugasnya hanya memberi kuantil untuk `c`; itulah satu-satunya
+konfigurasi yang benar-benar dicakup proposisi. Notebook 13 fase R menjalankan kedua lengan
+berpasangan pada sepuluh split.
+
+## 2. Rasio "70% plafon" menyembunyikan sebaran antar-split yang lebar
+
+| lengan | plafon per split | PCC per split | %plafon per split |
+|---|---|---|---|
+| ho0p3 (5 split) | 0,134 0,115 0,211 0,120 0,118 | 0,033 0,002 0,158 0,040 0,057 | 25 2 75 33 48 |
+| pesaing (3 split) | 0,118 0,049 0,157 | 0,078 0,010 0,137 | 67 20 87 |
+
+Plafonnya sendiri bergerak 0,10 antar split (sd 0,040). Angka utama adalah **rasio rata-rata**,
+dan itu sekarang dinyatakan di paper, bukan disamarkan.
+
+## 3. iNaturalist: kurva lambda MENURUN, bukan datar
+
+Diagnostik yang dipasang 2026-08-15 justru menjawab pertanyaan ulasan. Pada ambang >=75, lima
+split, kurva shrinkage di kelas berlabel iNat:
+
+| lambda | 0 | 0,1 | 0,2 | 0,3 | 0,5 | 1,0 |
+|---|---|---|---|---|---|---|
+| worst-class | **0,699** | 0,466 | 0,408 | 0,385 | 0,350 | 0,319 |
+
+Menurun monoton, jadi `delta_hat` **bukan** degenerat: ia membawa sinyal dan sinyalnya salah
+arah. MSE `g_theta` lintas dataset: ImageNet 0,036, Pl@ntNet 0,072, iNat **0,127** — melawan
+hasil +0,058 / +0,019 / 0,000. Jadi mekanismenya regresinya, bukan langkah seleksinya, dan
+shrinkage justru bekerja: ia mendeteksi regresi buruk lalu menolak bertindak.
+
+## 4. "98 kelas" di draft ambigu, dan ambang 35 tidak signifikan
+
+Pl@ntNet dengan aturan >=75: **98 dari 1081** kelas lolos, **34** di antaranya held-out,
+median 116 baris kalibrasi dan 198 evaluasi. Dengan >=35: 151 kelas, dan efeknya
++0,0203 **[-0,0110, +0,0516]** — CI memuat nol. Paper sekarang melaporkan keduanya; sebelumnya
+hanya yang signifikan.
+
+## Pembanding yang ditambahkan, dan yang tidak
+
+| metode | sumber | terdefinisi di n_y=0? | masuk tabel? |
+|---|---|---|---|
+| INTERP-Q | Ding dkk., `example.ipynb` penulisnya | **ya** (kuantil classwise tak-hingga di-cap ke 1 lalu dicampur) | ya, nb13 fase K |
+| PAS | Ding dkk., `example.ipynb` penulisnya | **ya** (prior dari label training) | ya, sebagai sumbu skor, nb13 fase P |
+| TACP/sTACP | Liu, Huang, Ong, AAAI 2026 | **ya** (partisi head/tail, bukan kuantil per kelas) | **tidak** — kode tidak dilepas, tolok ukurnya CIFAR100-LT/ImageNet-LT yang tidak kita punya; §7 melarang |
+| Kandinsky CP | Bairaktari, Wu, Wu, ICML 2025 | n/a (group-conditional) | tidak — dibahas sebagai rute menuju jaminan formal |
+
+TACP secara struktur justru **mendukung** argumen §3.1: indikator head/tail memberi dua
+derajat kebebasan, bukan satu per kelas, dan ablasi kita sudah menunjukkan deskriptor
+prevalensi-saja mendorong lambda ke nol.
+
+## nb08 masuk ke apendiks, dengan peran yang jujur
+
+Empat varian skor (softmax, rata-rata augmentasi, agregasi terpelajar, UM-TTA) pada backbone
+sama, `alpha=0,10`, tiga split, ukuran set dalam rentang 0,03:
+
+| skor | worst-class | ukuran | macro |
+|---|---|---|---|
+| softmax (LAC) | 0,534 | 1,256 | 0,900 |
+| rata-rata augmentasi | 0,485 | 1,228 | 0,898 |
+| agregasi terpelajar | 0,534 | 1,233 | 0,899 |
+| uncertainty-modulated | 0,518 | 1,230 | 0,900 |
+
+Sebaran 0,049 lintas empat konstruksi skor yang cukup berbeda, dan dua dari tiga varian
+augmentasi **lebih buruk** daripada softmax biasa. Itu pengukuran di balik argumen struktural.
+
+Sekaligus: konfigurasi nb08 punya median **25 baris evaluasi per kelas** — regime B, di bawah
+ambang 30. Jadi efek ~nol PCC di sana **tidak informatif tentang PCC**, dan itu adalah
+**instansi kelima** dari pola kedalaman evaluasi, ditemukan sebelum polanya dipahami. Itu
+sebagian alasan diagnosisnya butuh tiga percobaan.
