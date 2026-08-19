@@ -139,7 +139,7 @@ it --- which is how we learned that the unshrunk version is not a bound. It is $
 applied to a perfect offset, and $\lambda=1$ is harmful for worst-class coverage
 (\cref{tab:ablation}).
 
-Across all $228$ configurations the two definitions agree in
+Across all $228$ configurations of the main sweep the two definitions agree in
 $194$ cases, because the oracle's own shrinkage selects
 $\lambda_{\text{oracle}}=1$ there; on the primary ImageNet arm they coincide at $+0.140$, so
 the correction does not move that headline number. Where they differ, they differ by a lot,
@@ -665,8 +665,9 @@ involved at any point after the score dump exists.
 The competitors dominate the cost. A configuration that additionally runs the seven competitor
 entries takes $476$\,s against $128$\,s without them, so the comparison costs roughly $350$\,s
 per split, or about $2.7$ times the whole rest of the pipeline. Most of that is the
-kernel-weighted variants, which are evaluated at five bandwidths each. The complete experiment
-in this paper is $228$ configurations and $5.6$ hours of CPU time.
+kernel-weighted variants, which are evaluated at five bandwidths each. The main sweep is $228$ configurations and
+$5.6$ hours of CPU time; the additions of \cref{app:split,app:rowbudget,app:descriptors} add
+a further $73$ and about $3$ hours.
 
 \begin{table}[h]
 \centering
@@ -685,6 +686,7 @@ H & held-out fraction sweep  & $25$ & $131$\,s \\
 S & score and $\alpha$ sweep & $35$ & $127$\,s \\
 \midrule
 \multicolumn{3}{l}{Total, $228$ configurations} & $5.6$\,h \\
+\multicolumn{3}{l}{Later additions, $73$ configurations} & $3.0$\,h \\
 \bottomrule
 \end{tabular}
 \caption{Wall-clock cost per configuration, one CPU core, measured from the run reports. Phase D
@@ -696,7 +698,7 @@ five depth caps is run at ten splits.}
 \section{Reproducibility}
 \label{app:repro}
 
-All $228$ configurations write one JSON report each, containing the resolved configuration,
+All $301$ configurations write one JSON report each, containing the resolved configuration,
 the seed, every metric in \cref{tab:metrics} for both tables, the selected $\lambda$ and its
 whole curve, the measurability regime, wall-clock time, the interpreter and package versions,
 and the git commit of the code that produced it. The pre-registration documents summarised in
