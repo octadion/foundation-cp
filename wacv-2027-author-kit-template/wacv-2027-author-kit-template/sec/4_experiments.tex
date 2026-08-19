@@ -1,0 +1,352 @@
+\section{Experiments}
+\label{sec:exp}
+
+\paragraph{Protocol.} Unless stated otherwise we use ImageNet-1k
+\cite{russakovsky2015imagenet} scores from a SimCLRv2 encoder with a linear probe
+\cite{chen2020big}, descriptors taken from a supervised ResNet-50 head \cite{he2016deep} so
+that $\varphi$ is exogenous to the scoring model, $\alpha=0.10$, $30\%$ of classes held out
+with all of their calibration rows deleted, $n_{\mathrm{cal}}=25$, and five random splits.
+Intervals are $95\%$ confidence intervals over splits. Every comparison is made at matched
+average set size, as described in \cref{sec:setup}.
+
+\paragraph{Metrics.} \Cref{tab:metrics} defines the quantities we report. The headline
+statistic is worst-class coverage, since a single badly covered class is what a
+class-conditional guarantee is meant to prevent, but it can only be estimated when classes
+have enough evaluation examples. We therefore fix a threshold of $30$ evaluation examples per
+class in advance: above the threshold we report per-class worst coverage (regime~A) and below
+it a coarser prevalence-binned surrogate (regime~B), and every result states which regime it
+falls in. This distinction turns out to matter a great deal, and \cref{sec:depth} returns to
+it.
+
+\paragraph{Oracle ceiling.} To put the numbers on a scale we report an oracle that observes
+the test labels, forms the exact per-class offset from them, and then selects its own
+shrinkage. It is unattainable by construction and is not a method; it exists to say how much
+of the available room a method takes. An earlier version of this ceiling used the unshrunk
+per-class quantiles and was exceeded by PCC, which is how we found that the unshrunk quantity
+is not a bound at all, being $\lambda=1$ applied to a perfect offset at a setting of $\lambda$
+that is itself harmful. We report the shrunk ceiling throughout and give the unshrunk values
+in \cref{app:oracle}.
+
+Percentages of the ceiling should be read as ratios of averages and not as a per-split
+property. On the primary ImageNet arm the ceiling itself varies across the five splits, from
+$0.115$ to $0.211$ with a standard deviation of $0.040$, and our own improvement varies from
+$0.002$ to $0.158$, so the fraction of the ceiling taken ranges from $2\%$ to $75\%$ split by
+split. The same is true of the competitor arm, where the three splits give $67\%$, $20\%$ and
+$87\%$. The headline figures quoted below are therefore ratios of means, and the split-level
+spread is the honest measure of how well we can pin them down with the number of splits
+ImageNet's validation set allows.
+
+% ---------------------------------------------------------------- metrics
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Metric & Definition \\
+\midrule
+$\hat c_y$ (class coverage)
+  & $\frac{1}{|J_y|}\sum_{i\in J_y}\mathbf{1}\{Y_i\in\mathcal{C}(X_i)\}$ \\[2pt]
+Worst-class (regime A)
+  & $\min_{y}\hat c_y$ \\[2pt]
+Bin-worst (regime B)
+  & $\min_{b}\hat c^{(b)}$, prevalence bins $b$ \\[2pt]
+$\Delta$ worst-class
+  & worst-class, method $-$ marginal, matched size \\[2pt]
+Below target
+  & $\frac{1}{|\mathcal{Y}|}\sum_y\mathbf{1}\{\hat c_y<1-\alpha\}$ \\[2pt]
+SSCV
+  & $\max_{b}\bigl|\hat c^{(b)}-(1-\alpha)\bigr|$, set-size strata \\[2pt]
+Worst-slab
+  & $\min$ mean $\hat c_y$ over prevalence windows \\[2pt]
+Average set size
+  & $\frac{1}{N}\sum_i|\mathcal{C}(X_i)|$ \\[2pt]
+Empty-set rate
+  & $\frac{1}{N}\sum_i\mathbf{1}\{|\mathcal{C}(X_i)|=0\}$ \\
+\bottomrule
+\end{tabular}
+\caption{Evaluation metrics. $J_y$ is the set of test indices with label $y$ and $N$ the
+number of test points. Bins and strata are pooled groups, used where a per-class estimate is
+too noisy to report: prevalence bins require $200$ test rows each and set-size strata $30$.
+The empty-set rate is included because an average set size below one is only possible when a
+substantial share of test points receive nothing, a regime in which coverage and set size both
+merely look low.}
+\label{tab:metrics}
+\end{table}
+
+% ---------------------------------------------------------------- competitors
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+Method & $\Delta$ worst-class & Set size & Undefined \\
+\midrule
+\textsc{Standard} \cite{vovk2005algorithmic}   & $+0.000$ & $1.223$ & $0/300$ \\
+\textsc{Classwise} \cite{sadinle2019least}     & $+0.000$ & $1.223$ & $\mathbf{300/300}$ \\
+\textsc{Clustered} \cite{ding2023class}        & $+0.000$ & $1.223$ & $0/300$ \\
+\textsc{Rc3p} \cite{shi2024rank}               & $+0.000$ & $1.223$ & $\mathbf{300/300}$ \\
+\textsc{Fuzzy}, quantile \cite{ding2026conformal} & $+0.000$ & $1.223$ & $0/300$ \\
+\textsc{Fuzzy}, rarity \cite{ding2026conformal}   & $+0.003$ & $1.223$ & $0/300$ \\
+\textsc{Fuzzy}, random \cite{ding2026conformal}   & $+0.027$ & $1.223$ & $0/300$ \\
+\midrule
+\textbf{PCC (ours)} & $\mathbf{+0.075}$ & $1.223$ & $\mathbf{0/300}$ \\
+\midrule
+\textit{Oracle ceiling} & \textit{+0.107} & \textit{1.223} & --- \\
+\bottomrule
+\end{tabular}
+\caption{Classes with zero calibration examples: change in worst-class coverage relative to
+the marginal threshold, at matched average set size, on the $300$ held-out ImageNet classes,
+averaged over three splits. ``Undefined'' counts the classes to which a method could not
+assign a threshold, before the pre-registered fallback to the marginal threshold is applied.
+Every method is called through its authors' released implementation, and for \textsc{Fuzzy} CP
+the kernel bandwidth is swept with the best value kept, which favours the competitor.
+Worst-class coverage is decided by the classes a method fails on, so a method can hand most
+held-out classes an informative threshold and still score exactly zero.}
+\label{tab:competitors}
+\end{table}
+
+\subsection{Classes with no calibration examples}
+\label{sec:comp}
+
+\Cref{tab:competitors} is our main comparison. PCC improves worst-class coverage on the
+held-out classes by $0.075$, which is $70\%$ of the oracle ceiling, while the best competitor
+reaches $0.027$ and five of the seven change the statistic by exactly zero. Paired over
+splits, PCC exceeds five of the seven with intervals excluding zero; against the two moving
+variants of \textsc{Fuzzy} CP the differences are positive, at $0.049$ and $0.072$, but their
+intervals include zero at three splits. Three aspects of the table need comment.
+
+\paragraph{Undefined thresholds.} \textsc{Classwise} CP and \textsc{Rc3p} return an infinite
+threshold for all $300$ held-out classes, and the \textsc{Rc3p} implementation prints a warning
+to that effect for each one. Their entry of zero records the pre-registered fallback to the
+marginal threshold, and the methods themselves have nothing to say about these classes, which
+is the distinction \cref{tab:methods} is meant to make visible.
+
+\paragraph{Prevalence-based and random embeddings.} \textsc{Fuzzy} CP with the rarity
+projection reaches $0.003$ and is beaten by the same method with a random projection, at
+$0.027$. Widening thresholds for data-poor classes in an arbitrary direction already buys
+something, whereas prevalence adds nothing on top of that. Our own feature ablation reaches
+the same conclusion by an independent route, since prevalence-only descriptors drive $\lambda$
+to zero in all ten splits (\cref{tab:ablation}). Since random borrowing already helps, the useful
+comparison is between one choice of geometry and another, and the descriptors of
+\cref{sec:phi} buy $2.8$ times what a random direction buys.
+
+\paragraph{Effect across classes.} The correction lifts the worst class from $0.569$ to
+$0.647$ and leaves macro-coverage essentially unchanged, at $0.898$ before and $0.896$ after.
+Because average set size is held fixed, that gain is paid for elsewhere: $12\%$ of classes gain
+coverage and $27\%$ lose a small amount, with the mean change in each prevalence quintile lying
+between $-0.003$ and $+0.001$. Whether the trade is worth making is a question about the
+application, which is why we report the minimum and the average side by side.
+\Cref{app:whohelped} gives the full breakdown.
+
+% ---------------------------------------------------------------- ablations
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+Ablation & $\Delta$ vs.\ full & $d_z$ & Holm \\
+\midrule
+$\lambda=0$ (no correction)      & $+0.032$ & $1.30$ & \checkmark \\
+$\lambda=1$ (unshrunk)           & $+0.584$ & $3.99$ & \checkmark \\
+distance descriptors only        & $+0.039$ & $1.49$ & \checkmark \\
+prevalence descriptor only       & $+0.032$ & $1.30$ & \checkmark \\
+without prevalence               & $+0.011$ & $0.33$ & --- \\
+$n^\star$ rule replaced          & $+0.000$ & --- & --- \\
+no marginal recalibration        & $+0.000$ & --- & --- \\
+\bottomrule
+\end{tabular}
+\caption{Ablations on ImageNet at $\alpha=0.10$ over ten splits. A positive value means the
+full method is better than the ablated one. $d_z$ is Cohen's paired effect size and the last
+column marks Holm-corrected significance at level $0.05$ \cite{holm1979simple}. The last two
+rows are identical to the full method at matched set size by construction, for the reason
+given in the text.}
+\label{tab:ablation}
+\end{table}
+
+\subsection{Ablations}
+\label{sec:ablations}
+
+\Cref{tab:ablation} removes one component at a time over ten splits. Shrinkage carries the
+method: both endpoints of the $\lambda$ grid are significantly worse than the selected
+interior value, and the unshrunk correction costs $0.584$ in worst-class coverage. Among the
+descriptors, using distances alone or prevalence alone is significantly worse than the full
+set, while removing prevalence from the full set is not ($p=0.30$), so the geometric features
+are what carry the signal.
+
+The final two rows are exactly zero, and the reason is a property of the metric. Marginal recalibration adds one constant to every threshold, and the
+matched-size comparison shifts every threshold by one constant, so the two cancel and this
+view of the results cannot see that component at all. At the thresholds as they are emitted,
+the recalibration step moves marginal coverage from $0.8963$ to $0.8989$ against a target of
+$0.90$, at a cost of $0.31$ in average set size, over ten splits. Those raw thresholds are much
+wider than the marginal ones, giving an average set size of $2.31$ against $1.21$, which is
+precisely what the size matching removes and why the unmatched view cannot be used to compare
+methods. We therefore report both views, here and in
+\cref{app:invisible}, so that a component the chosen metric cannot see is not recorded as
+inert.
+
+% ---------------------------------------------------------------- eval depth
+\begin{figure}[t]
+\centering
+\fbox{\parbox[c][4.2cm][c]{0.92\linewidth}{\centering
+\TODO{Figure: evaluation-depth curve. $x$ = evaluation examples per class
+(3, 10, 35, 75, all), two panels: (a) $\Delta$ worst-class coverage for PCC with CI band;
+(b) the oracle ceiling on the same axis, showing it collapsing to $\le 0$ at 3.
+Shade the regime-B region ($<35$) and mark where the four failing settings sit.}}}
+\caption{Evaluation depth. Evaluation examples per class are capped inside one dataset with
+everything else held fixed. Below roughly $35$ examples per class the oracle ceiling itself
+falls to zero, so no method, including one that observes the test labels, can be shown to
+improve worst-class coverage. The settings in which our method appeared to fail sit at $35$,
+$3$ and $2$ examples per class.}
+\label{fig:evaldepth}
+\end{figure}
+
+\subsection{The role of evaluation depth}
+\label{sec:depth}
+
+Applied without modification, PCC fails on two long-tailed datasets and on two additional
+backbones. We traced all four failures to a single axis, and doing so required discarding two
+earlier explanations of our own.
+
+\paragraph{Calibration depth.} Capping the number of calibration examples per class inside
+ImageNet, with everything else fixed, produces a monotone dose-response: $0.033$ at ten
+examples per class rising to $0.060$ at one hundred, with all five intervals excluding zero
+(\cref{tab:depth}). Ten examples per class is far thinner than the configurations that fail,
+yet the effect is clearly present, so calibration depth scales the effect without explaining
+the failures.
+
+\paragraph{Endogenous and exogenous descriptors.} We next hypothesised that the backbone
+failures came from using each model's own head as $\varphi$, which makes the descriptors
+endogenous to the scores they are used to correct. Running both arms refutes this: with a
+fixed exogenous head, whose weights correlate $0.001$ element-wise with each model's own head,
+ConvNeXt-T moves from $0.000$ to $0.011$, ViT-B/16 from $-0.029$ to $-0.011$ and ResNet-50
+from $0.017$ to $0.006$, with every interval containing zero (\cref{app:backbones}).
+
+\paragraph{Evaluation depth.} \Cref{fig:evaldepth} caps the number of \emph{evaluation}
+examples per class, the mirror of the calibration sweep and again inside a single dataset. The
+effect is monotone and its interval crosses zero between $35$ and $75$ examples per class.
+More importantly, the oracle ceiling collapses along the same axis and is at or below zero by
+three examples per class, meaning that a method with access to the test labels could not
+improve worst-class coverage there either. In that regime the room to improve has itself
+disappeared. The regime threshold of \cref{tab:metrics} also
+falls inside this range, since with three examples a class's coverage can take only four
+distinct values.
+
+The axis predicts the four failures quantitatively. The additional backbones have $35$
+evaluation examples per class and measure $0.017$, which is what the sweep gives at $35$;
+Pl@ntNet-300K has three and iNaturalist-2018 has two, where the sweep is at or below zero.
+
+\paragraph{A test of the explanation.} If the explanation is correct then restricting
+evaluation to classes that clear the threshold should recover the effect on a long-tailed
+dataset. On Pl@ntNet-300K it does. Of the $1081$ classes, $98$ have at least $75$ evaluation
+examples, and $34$ of those are held out; over that label space the improvement is $0.019$ with
+interval $[0.010,0.028]$ and five of five splits improving. The weaker threshold of $35$
+examples keeps more classes but does not reach significance, at $0.020$ with interval
+$[-0.011,0.052]$, which is the behaviour \cref{fig:evaldepth} predicts for a slice sitting at
+the edge of measurability (\cref{tab:longtail}). The apparent failure on this dataset was an
+artefact of what its test set can measure, and the price of removing that artefact is that the
+claim now covers under a tenth of the label space.
+
+On iNaturalist-2018 the effect remains exactly zero after the same restriction, and the
+reason is not scarcity, since the surviving classes retain $40$ calibration and $56$ evaluation
+examples each at the weaker threshold. Instead $\lambda$ is selected as $0$ in all five splits,
+so the method returns the marginal threshold unchanged. The shrinkage curve says why. It is not
+flat, which would mean $\hat\delta$ is degenerate and every $\lambda$ scores alike; it decreases
+monotonically, from $0.695$ at $\lambda=0$ to $0.335$ at $\lambda=1$, so $\hat\delta$ carries
+signal and that signal points the wrong way. The regression is correspondingly poor: the
+cross-validated error of $g_\theta$ is $0.127$ here against $0.036$ on ImageNet and $0.072$ on
+Pl@ntNet-300K. Eight times as many classes fitted in a descriptor space of the same dimension is
+the obvious explanation, and richer descriptors are the obvious remedy, but we have not tested
+either and offer both as hypotheses. What the shrinkage step does deliver here is that a
+$3.5\times$ worse regression costs nothing: the method detects that it cannot help and abstains.
+
+% ---------------------------------------------------------------- held-out
+\begin{figure}[t]
+\centering
+\fbox{\parbox[c][3.6cm][c]{0.92\linewidth}{\centering
+\TODO{Figure: held-out fraction curve. $x$ = fraction of classes with zero calibration data
+(10--90\%), $y$ = $\Delta$ worst-class coverage with CI band; second $y$-axis or annotation
+for \% of oracle ceiling. Mark the $p+2$ floor.}}}
+\caption{Amount of supervision required. Worst-class improvement as a function of how many
+classes have no calibration data at all. With $100$ labelled classes out of $1000$ the effect
+is still $0.052$ with an interval excluding zero. The structural floor is $p+2$ labelled
+classes, which is eleven in this configuration.}
+\label{fig:heldout}
+\end{figure}
+
+\subsection{Amount of supervision required}
+\label{sec:supervision}
+
+\Cref{fig:heldout} sweeps the held-out fraction from $10\%$ to $90\%$. The effect peaks at
+$50\%$, with $0.080$ or $62\%$ of the ceiling, and remains significant at $90\%$, where only
+$100$ classes retain labels, with $0.052$ and interval $[0.007,0.098]$. Four of the five
+points have intervals excluding zero; the exception is $10\%$, where only $100$ classes are
+held out, so the worst-class statistic computed over them is noisier and the room to improve
+is smaller. The floor is structural, as $g_\theta$ is a ridge regression over $p$ features and
+needs at least $p+2$ labelled classes, which is eleven in our configuration.
+
+\subsection{Score functions and miscoverage level}
+\label{sec:scores}
+
+\Cref{tab:depth} sweeps the score function and $\alpha$. The correction survives all four
+scores but is strongest with LAC and attenuates for the adaptive ones. A plausible mechanism
+is that APS, RAPS and SAPS already reshape the score using rank or cumulative mass, so part of
+the class-difficulty signal that $\delta_y$ captures has been absorbed into the score itself.
+At $\alpha=0.01$ the effect is exactly zero, which is consistent with the per-class offsets
+becoming indistinguishable from noise as the quantile moves into the extreme tail.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{llcc}
+\toprule
+Axis & Setting & $\Delta$ worst-class & \% ceiling \\
+\midrule
+\multirow{4}{*}{Score}
+ & LAC \cite{sadinle2019least}                  & $\mathbf{+0.058}\ [+0.006,+0.110]$ & $42$ \\
+ & SAPS \cite{huang2024conformal}               & $+0.031\ [-0.019,+0.081]$ & $24$ \\
+ & APS \cite{romano2020classification}          & $+0.022\ [+0.004,+0.040]$ & $15$ \\
+ & RAPS \cite{angelopoulos2021uncertainty}      & $+0.010\ [-0.009,+0.029]$ & $10$ \\
+\midrule
+\multirow{3}{*}{$\alpha$}
+ & $0.10$ & $\mathbf{+0.058}\ [+0.006,+0.110]$ & $42$ \\
+ & $0.05$ & $+0.040\ [-0.008,+0.088]$ & $39$ \\
+ & $0.01$ & $+0.000\ [\ \ 0.000,\ 0.000]$ & $0$ \\
+\midrule
+\multirow{5}{*}{\shortstack[l]{Cal.\\depth}}
+ & $10$/class  & $+0.033\ [+0.016,+0.050]$ & $26$ \\
+ & $25$/class  & $+0.030\ [+0.011,+0.049]$ & $23$ \\
+ & $50$/class  & $+0.041\ [+0.021,+0.061]$ & $32$ \\
+ & $100$/class & $\mathbf{+0.060}\ [+0.032,+0.088]$ & $46$ \\
+ & $175$/class & $+0.059\ [+0.031,+0.086]$ & $46$ \\
+\bottomrule
+\end{tabular}
+\caption{Score function, miscoverage level and calibration depth on held-out ImageNet classes
+over five splits, and ten splits for calibration depth. The calibration-depth block is the
+dose-response referred to in \cref{sec:depth}; the ceiling is flat across it, from $0.128$ to
+$0.132$, so the room available is constant across the block and the rise is attributable to
+the method.}
+\label{tab:depth}
+\end{table}
+
+\paragraph{Corrupted inputs.}
+\label{sec:shift}
+We also calibrate on clean images and evaluate on ImageNet-C \cite{hendrycks2019benchmarking},
+over all $15$ corruptions at severities $3$ and $5$ with three splits, for $90$ conditions.
+The two slices come from different distributions, so exchangeability fails and the coverage
+guarantee is void for every method compared, standard split conformal included. We therefore
+read this as a stress test and report the empty-set rate as direct evidence that the guarantee
+is gone: at contrast severity $5$, marginal coverage is $0.053$ and $75.7\%$ of test points
+receive an empty set. Pooled over conditions PCC gives $0.003$ with interval $[0.001,0.005]$,
+so the mechanism survives the shift but the effect is an order of magnitude smaller, and under
+severe corruption the whole setting degenerates. Per-corruption numbers are in
+\cref{app:imagenetc}.
+
+\paragraph{Computational cost.} PCC trains nothing. The regression is a closed-form ridge fit
+over at most $K$ points with $p\le15$ features, and the descriptors are read directly from the
+classifier's weights, so no images, gradients or GPU are involved. \Cref{tab:runtime} in the
+appendix reports wall-clock times against the competitors, whose kernel-weighted variants
+dominate the total cost of our comparison.

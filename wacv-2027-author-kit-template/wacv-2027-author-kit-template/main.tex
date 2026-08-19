@@ -1,0 +1,69 @@
+% WACV 2027 Paper Template
+% based on the ICCV 2025 template (https://media.eventhosts.cc/Conferences/ICCV2025/ICCV2025-Author-Kit-Feb.zip) with
+% WACV-specific details (e.g., 2 tracks) from the WACV 2025 template (https://www.dropbox.com/scl/fi/su44zgdhrzik26p2xu37k/WACV-2025-Author-Kit-Template.zip?rlkey=5qcfimjhxnmx3wlyk7yhk8wg7&dl=0)
+
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+%%%%%%%%% PAPER TYPE  - PLEASE UPDATE FOR FINAL VERSION
+\usepackage[review,algorithms]{wacv}      % To produce the REVIEW version for the algorithms track
+% \usepackage[review,applications]{wacv}      % To produce the REVIEW version for the applications track
+% \usepackage[review,datasets]{wacv}      % To produce the REVIEW version for the datasets track
+% \usepackage{wacv}              % To produce the CAMERA-READY version
+%\usepackage[pagenumbers]{wacv} % To force page numbers, e.g. for an arXiv version
+
+% Import additional packages in the preamble file, before hyperref
+\input{preamble}
+
+% It is strongly recommended to use hyperref, especially for the review version.
+% hyperref with option pagebackref eases the reviewers' job.
+% Please disable hyperref *only* if you encounter grave issues,
+% e.g. with the file validation for the camera-ready version.
+%
+% If you comment hyperref and then uncomment it, you should delete *.aux before re-running LaTeX.
+% (Or just hit 'q' on the first LaTeX run, let it finish, and you should be clear).
+\definecolor{wacvblue}{rgb}{0.21,0.49,0.74}
+\usepackage[pagebackref,breaklinks,colorlinks,allcolors=wacvblue]{hyperref}
+\usepackage[capitalise,noabbrev]{cleveref}   % must load AFTER hyperref
+
+%%%%%%%%% PAPER ID  - PLEASE UPDATE
+\def\wacvPaperID{*****} % *** Enter the WACV Paper ID here
+\def\confName{WACV}
+\def\confYear{2027}
+
+
+%%%%%%%%% TITLE
+\title{Predicted Class Correction: Conformal Thresholds for Classes\\with No Calibration Data}
+
+%%%%%%%%% AUTHORS - anonymous for review; fill in for the camera-ready version
+\author{Anonymous WACV submission\\
+Paper ID \wacvPaperID
+}
+
+\begin{document}
+\maketitle
+
+\input{sec/0_abstract}
+\input{sec/1_intro}
+\input{sec/2_related}
+\input{sec/3_method}
+\input{sec/4_experiments}
+\input{sec/5_discussion}
+
+% The template's own guideline sections are deliberately NOT included:
+%   sec/2_formatting.tex  and  sec/3_finalcopy.tex
+% They ship with the author kit and contain the LaTeX instructions, not our paper.
+% Keep the files on disk for reference, but never \input them.
+
+{
+    \small
+    \bibliographystyle{ieeenat_fullname}
+    \bibliography{main}
+}
+
+%%%%%%%%% SUPPLEMENTARY
+% WACV 2027: eight pages excluding references. Everything after \clearpage is
+% supplementary material and does not count towards that limit.
+\clearpage
+\input{sec/6_appendix}
+
+\end{document}

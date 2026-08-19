@@ -1,0 +1,209 @@
+\section{Predicted Class Correction}
+\label{sec:method}
+
+\subsection{Setup}
+\label{sec:setup}
+
+Let $(X_i,Y_i)_{i=1}^{n}$ be calibration pairs and $(X_{n+1},Y_{n+1})$ a test pair, all
+exchangeable, with labels in $\mathcal{Y}=\{1,\dots,K\}$. A conformal score
+$s:\mathcal{X}\times\mathcal{Y}\to\mathbb{R}$ is larger when a pair conforms less; we use
+$s(x,y)=1-\hat p(y\mid x)$, the LAC score of \citet{sadinle2019least}, and report APS
+\cite{romano2020classification}, RAPS \cite{angelopoulos2021uncertainty} and SAPS
+\cite{huang2024conformal} in \cref{tab:depth}. Write $n_y$ for the number of calibration
+examples of class $y$, and let
+\begin{equation}
+\hat q = \mathrm{Quantile}\Big(\{s(X_i,Y_i)\}_{i=1}^n;\ \tfrac{\lceil (n+1)(1-\alpha)\rceil}{n}\Big)
+\label{eq:qglobal}
+\end{equation}
+be the marginal conformal quantile. Classwise conformal prediction replaces $\hat q$ by a
+per-class quantile $\hat q_y$ computed from the $n_y$ examples of class $y$; equivalently it
+applies a per-class \emph{offset}
+\begin{equation}
+\delta_y \;=\; \hat q_y - \hat q ,
+\label{eq:delta}
+\end{equation}
+which is positive for classes that need a looser threshold. When $n_y=0$, $\hat q_y$ and
+hence $\delta_y$ are undefined.
+
+\paragraph{Held-out classes.} We study the zero-example case directly. A fraction of classes
+is designated as \emph{held out} and all of their calibration rows are deleted, so that
+$n_y$ is exactly zero for them. Results are then reported in two tables that
+are never averaged together, one for the classes that kept their data and one for the held-out
+classes, since a method that wins on the held-out classes by sacrificing the others has not
+solved the problem and a single pooled number would conceal that.
+
+\paragraph{Choice of intervention.} A natural alternative is to improve
+$s(x,y)$ itself, whether by a better model, a better calibration of its probabilities, or by
+aggregating predictions over transformed copies of the input. Any such intervention reshapes
+the score for all classes at once. Class-conditional coverage, however, is set by where each
+class's threshold falls in its own score distribution, and a uniformly better score moves
+every class in the same direction. Reducing the spread of per-class coverage therefore requires a
+degree of freedom per class, which $\delta_y$ supplies and a score-level intervention does
+not. \Cref{app:score-level} makes this concrete with a measurement.
+
+\paragraph{Matched set size.} Coverage can always be bought with larger sets, so comparing
+coverage at unmatched set size compares nothing. Every method we report, ours included, is
+shifted by one global constant until its \emph{average set size} equals a common target, and
+worst-class coverage is read at that matched size. This is the resource-matched comparison
+used throughout \cref{sec:exp}.
+
+\subsection{Calibration-label-free class descriptors}
+\label{sec:phi}
+
+For a linear classifier head with weight rows $w_y\in\mathbb{R}^d$ and biases $b_y$, we form a
+descriptor vector $\varphi(y)\in\mathbb{R}^{p}$, $p=9$, from
+\begin{enumerate}[itemsep=1pt,topsep=2pt,leftmargin=*]
+\item $\|w_y\|_2$ and $b_y$, the scale and offset of the class logit;
+\item cosine distances from $w_y$ to its $k$ nearest competing rows for
+      $k\in\{5,10,50\}$, the distance to the nearest row, the spread of that
+      neighbourhood, and the cosine distance to the mean row, all of which measure how
+      crowded the class is;
+\item $\log$ of the class prevalence in the training set.
+\end{enumerate}
+The term we use is \emph{calibration-label-free}, and what separates it from label-free is
+the prevalence feature. The eight geometric features are functions of the model's parameters
+alone, so they are defined for a class with no examples of any kind and carry no sampling
+noise. Prevalence is counted from the \emph{training} labels, which are available whenever the
+model is, but which are labels; it is therefore free of \emph{calibration} labels and not free
+of labels altogether. Nothing in the method depends on it: removing prevalence costs $0.011$
+in worst-class coverage and does not reach significance ($p=0.30$), while prevalence on its own
+is significantly worse than the full set (\cref{tab:ablation}). The feature that most closely
+resembles the regression target is held out of the feature set, so the reported numbers cannot
+be attributed to that one feature.
+
+\subsection{The correction}
+\label{sec:correction}
+
+\paragraph{Step 1: regress.} On the classes with at least $n_{\mathrm{cal}}$ calibration
+examples, a count fixed in advance, we observe $\delta_y$ from
+\cref{eq:delta} and fit a ridge regression $g_\theta:\mathbb{R}^p\to\mathbb{R}$ to predict it
+from $\varphi(y)$. There is no network and no training loop: $g_\theta$ is a closed-form fit
+over at most $K$ points with $p\le 15$ features, which costs milliseconds
+(\cref{tab:runtime}).
+
+\paragraph{Step 2: shrink.} The raw prediction is applied with a scalar $\lambda$,
+\begin{equation}
+\tilde\delta_y \;=\; \lambda\cdot g_\theta(\varphi(y)) ,
+\label{eq:shrink}
+\end{equation}
+with $\lambda$ selected on the labelled label space only, by maximising worst-class coverage
+at matched size over a fixed grid. This restriction matters, because choosing $\lambda$ with
+help from the held-out classes would allow a free parameter to manufacture the very result the
+held-out table is meant to test, and it would also void \cref{prop:marginal}.
+
+The shrinkage step is what makes the method usable. Worst-class coverage is governed by the
+largest error in $\tilde\delta$, which its mean squared error does not control, so a predictor
+with a respectable $R^2$ can still be harmful when applied at full strength. Measured on ImageNet,
+$\lambda=1$ costs $0.584$ in worst-class coverage relative to the selected
+$\lambda\approx0.1$, while $\lambda=0$ recovers the marginal threshold exactly
+(\cref{tab:ablation}). Both endpoints of the grid are significantly worse than its interior.
+
+\paragraph{Accuracy required of $g_\theta$.} We have no theory saying when $\varphi$
+predicts $\delta$ well, and the honest summary is that the method works exactly as far as the
+regression does. Our three datasets happen to span a wide range of regression quality and line
+up monotonically with the outcome: the cross-validated mean squared error of $g_\theta$ is
+$0.036$ on ImageNet, $0.072$ on Pl@ntNet-300K and $0.127$ on iNaturalist-2018, against
+worst-class improvements of $0.058$, $0.019$ and $0.000$. The shrinkage step is what makes a
+poor regression safe instead of harmful, since it can select $\lambda=0$ and return the
+marginal threshold, and on iNaturalist-2018 that is what happens in every split
+(\cref{sec:depth}). A practitioner can therefore read $\lambda$ as a diagnostic: it reports how
+much of $g_\theta$ the calibration data was willing to trust.
+
+\paragraph{Step 3: recalibrate.} Finally one scalar $c$ is refit, on labelled-class rows only,
+so that marginal coverage returns to $1-\alpha$. The prediction set is
+\begin{equation}
+\mathcal{C}(x) \;=\; \bigl\{\, y : s(x,y) \le \hat q + \tilde\delta_y + c \,\bigr\}.
+\label{eq:set}
+\end{equation}
+
+\subsection{Data splitting}
+\label{sec:splits}
+
+Because every quantity above is estimated, it matters exactly which rows and which classes each
+one is allowed to see. Two independent partitions are used. Classes are partitioned into
+\emph{labelled} classes $\mathcal{Y}_{\mathrm{lab}}$ and \emph{held-out} classes
+$\mathcal{Y}_{\mathrm{ho}}$, and, independently, the rows of every class are partitioned into a
+calibration part and an evaluation part. \Cref{tab:splits} states which combination each
+estimated quantity is fitted on.
+
+Two invariants hold in all our experiments. Nothing is ever fitted on evaluation rows, and
+nothing is ever fitted on a held-out class. Both are enforced in code by reindexing the score
+matrix to the labelled classes before any selection, so the two cannot drift apart. The
+consequence is that the numbers reported for held-out classes are free of selection effects
+from $\lambda$, $n_{\mathrm{cal}}$ and $c$. The numbers reported for labelled classes are not,
+which is the second reason the two tables are kept apart.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Quantity & Rows & Classes \\
+\midrule
+$\hat q$, marginal quantile \eqref{eq:qglobal} & calibration & all labelled \\
+$\delta_y$, observed offset \eqref{eq:delta}   & calibration & labelled, $n_y\ge n_{\mathrm{cal}}$ \\
+$g_\theta$, the ridge fit                      & calibration & labelled, $n_y\ge n_{\mathrm{cal}}$ \\
+$\lambda$, shrinkage \eqref{eq:shrink}         & calibration & all labelled \\
+$n_{\mathrm{cal}}$                             & calibration & all labelled \\
+$c$, marginal offset \eqref{eq:set}            & calibration & all labelled \\
+\midrule
+\emph{everything reported}                     & \emph{evaluation} & \emph{both tables} \\
+\bottomrule
+\end{tabular}
+\caption{What each estimated quantity may see. Evaluation rows and held-out classes are used
+only for reporting. The default configuration lets $g_\theta$, $\lambda$ and $c$ share the same
+calibration rows, which is convenient but not what \cref{prop:marginal} assumes; \textsc{Pcc}-split
+divides those rows in two and is the variant the proposition covers.}
+\label{tab:splits}
+\end{table}
+
+\subsection{Coverage guarantee}
+\label{sec:guarantee}
+
+Let $\mathcal{I}_{\mathrm{fit}}$ and $\mathcal{I}_{\mathrm{rec}}$ be disjoint sets of
+calibration rows, of sizes $n_{\mathrm{fit}}$ and $n_{\mathrm{rec}}$.
+
+\begin{proposition}[Marginal coverage is preserved]
+\label{prop:marginal}
+Let $(X_i,Y_i)_{i\in\mathcal{I}_{\mathrm{rec}}}$ and $(X_{n+1},Y_{n+1})$ be exchangeable, and
+let $\tilde\delta_\cdot$ be any function of $\varphi(\cdot)$ and of
+$(X_i,Y_i)_{i\in\mathcal{I}_{\mathrm{fit}}}$. Let $c$ be the conformal quantile at level
+$\lceil (n_{\mathrm{rec}}+1)(1-\alpha)\rceil/n_{\mathrm{rec}}$ of the shifted scores
+$\{s(X_i,Y_i)-\tilde\delta_{Y_i}\}_{i\in\mathcal{I}_{\mathrm{rec}}}$. Then
+$\mathbb{P}\bigl(Y_{n+1}\in\mathcal{C}(X_{n+1})\bigr)\ge 1-\alpha$.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+Define $\tilde s(x,y)=s(x,y)-\tilde\delta_y$. Since $\tilde\delta_\cdot$ is a function of
+$\varphi(\cdot)$ alone, and $\varphi$ is computed from the model's weights and does not involve
+these calibration rows, $\tilde s$ is a \emph{fixed} score function with respect to the
+sample. Exchangeability is closed under applying a fixed map pointwise, so
+$\tilde s(X_1,Y_1),\dots,\tilde s(X_{n+1},Y_{n+1})$ are exchangeable and the standard split
+conformal argument applies verbatim to $\tilde s$. Membership in $\mathcal{C}$ is exactly the
+event $\tilde s(X_{n+1},Y_{n+1})\le c$ up to the constant shift. Full proof in
+\cref{app:proof}.
+\end{proof}
+
+The proposition holds because only \emph{one} degree of freedom is calibrated on
+$\mathcal{I}_{\mathrm{rec}}$. $\tilde\delta_y$ may be arbitrarily complex, since it merely
+redefines the score.
+
+\paragraph{Reuse of calibration rows.} The premise names two disjoint row sets, and the
+configuration used for every table in \cref{sec:exp} does not provide them: $g_\theta$,
+$\lambda$ and $c$ are all estimated on the same calibration rows, so $\tilde\delta$ and $c$ are
+dependent and the proposition does not apply as stated. We report the size of the resulting
+optimism instead of assuming it away. On ten ImageNet splits, at the thresholds as they are
+emitted, the marginal threshold covers $0.9013$ and \textsc{Pcc} covers $0.8989$ against a
+target of $0.900$, so the reuse costs about $0.0024$ of marginal coverage, roughly thirty times
+the finite-sample slack $1/(n+1)$ at our calibration sizes. \textsc{Pcc}-split, which divides
+the calibration rows in two and satisfies the premise exactly, is reported in
+\cref{app:split}.
+
+\paragraph{Scope of the claim.} There is no finite-sample class-conditional guarantee for a
+class with $n_y=0$, and there cannot be one for any method, since with no labelled example of
+the class there is nothing to condition on. Our claim for those classes is empirical, namely
+measured worst-class coverage at matched set size, and \cref{sec:exp} reports it as such.
+Furthermore $\lambda$ and $n_{\mathrm{cal}}$ are data-dependent choices made on the labelled
+label space, which makes the labelled-class table optimistic; this is why the two tables are
+kept apart.

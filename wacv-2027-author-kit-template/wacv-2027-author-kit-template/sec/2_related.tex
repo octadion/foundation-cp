@@ -1,0 +1,110 @@
+\section{Related Work}
+\label{sec:related}
+
+% ---------------------------------------------------------------- method summary
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Method & Threshold $q_y$ from & If $n_y=0$ & Specific \\
+\midrule
+\textsc{Standard} \cite{vovk2005algorithmic}
+  & one shared quantile      & shared quantile          & n/a \\
+\textsc{Classwise} \cite{sadinle2019least}
+  & own-class quantile       & undefined, $q_y=\infty$  & no \\
+\textsc{Clustered} \cite{ding2023class}
+  & cluster quantile         & null cluster, shared     & no \\
+\textsc{Rc3p} \cite{shi2024rank}
+  & quantile + rank budget   & undefined, $q_y=\infty$  & no \\
+\textsc{Fuzzy} \cite{ding2026conformal}
+  & kernel-weighted quantile & collapsed, shared        & no \\
+\textsc{Pas} \cite{ding2026conformal}
+  & one shared quantile      & shared quantile          & n/a \\
+\textsc{Interp-Q} \cite{ding2026conformal}
+  & $\tau q_y^{\mathrm{cw}}+(1-\tau)\hat q$ & capped, then blended & weakly \\
+\textsc{Tacp} \cite{liu2026tail}
+  & shared quantile, head penalty & head/tail only      & by group \\
+\midrule
+\textbf{PCC} (ours)
+  & $g_\theta(\varphi(y))$ from weights & predicted     & \textbf{yes} \\
+\bottomrule
+\end{tabular}
+\caption{Methods that give a class its own conformal threshold. All of them target at least
+marginal coverage; the columns that separate them are what happens to a class with no labelled
+calibration examples, and how specific to that class the threshold it receives can be. Three
+methods do produce a defined threshold there without per-class labels: \textsc{Pas} reshapes the
+score using prevalence, \textsc{Interp-Q} caps the undefined classwise quantile at one before
+blending, and \textsc{Tacp} penalises the score of head classes, which gives one degree of
+freedom per prevalence group instead of one per class. Behaviours were obtained by running the
+authors' released implementations on the same held-out classes, except for \textsc{Tacp}, whose
+authors release no code; \cref{tab:competitors} reports the coverage that results.}
+\label{tab:methods}
+\end{table}
+
+\paragraph{Class-conditional conformal prediction.} Classwise conformal prediction, an
+instance of Mondrian conformal prediction \cite{vovk2005algorithmic}, calibrates an
+independent quantile per class and thereby attains class-conditional coverage, at the price of
+very large sets when classes are thin \cite{sadinle2019least,lofstrom2015bias}. Two lines of
+work soften that price by sharing information between classes: \textsc{Clustered} CP groups
+classes by an embedding of their score distributions and calibrates one quantile per cluster
+\cite{ding2023class}, while rank-calibrated CP couples a per-class quantile with a per-class
+rank budget \cite{shi2024rank}. Most recently, \citet{ding2026conformal} embed each class by
+the quantiles of its own score distribution and compute a kernel-weighted quantile that
+borrows from nearby classes, alongside a prevalence-adjusted score function.
+
+That last method is the closest to ours in structure, and the difference between them is what
+this paper is about. Their embedding of class $y$ is computed from the labelled calibration
+scores of class $y$, so when a class has none the embedding is undefined and their
+implementation assigns it the extreme value of the embedding range, with the consequence that
+every zero-example class receives one shared threshold. Our descriptors are computed from the
+classifier's weights and never touch a label, so a class with zero examples still receives a
+threshold of its own. \Cref{tab:competitors} reports both behaviours measured on the same
+data.
+
+\paragraph{Adaptive conformal prediction and score design.} Normalised or locally adaptive
+conformal prediction predicts a per-instance notion of difficulty from the features and
+rescales the score by it \cite{lei2014distribution}, which is the per-instance counterpart of
+what we do per class. A parallel line designs the score function itself so as to trade set
+size against conditional coverage, including APS \cite{romano2020classification}, RAPS
+\cite{angelopoulos2021uncertainty} and SAPS \cite{huang2024conformal}; we report results for
+all three in \cref{tab:depth}. What is new in our setting is not the idea of modulating a
+conformal quantity by side information but the side information itself, which remains
+available for classes the calibration set never saw.
+
+\paragraph{Prevalence as the source of the correction.} A second family leaves the per-class
+quantile alone and reshapes the score using class frequency. \citet{ding2026conformal} divide
+the softmax probability by an estimate of the class prior, which is optimal for macro-coverage
+among procedures of a given expected set size, and blend the classwise and marginal quantiles
+with a user-chosen weight. \citet{liu2026tail} add a rank-dependent penalty to the scores of
+head classes, with a smooth reweighting in their sTACP variant, and prove a smaller head-tail
+coverage gap. Both are defined for a class with no calibration examples, which makes them the
+closest competitors to ours that remain applicable in our regime, and both draw their per-class
+signal from a single scalar. Prevalence turns out to be the weakest of the descriptors we
+tried: it is significantly worse than geometry on its own (\cref{tab:ablation}) and is beaten
+by a random projection of the same dimension (\cref{tab:competitors}), which is the empirical
+reason we look at the classifier's geometry instead.
+
+\paragraph{Group-conditional coverage.} A third family asks for coverage conditional on
+membership of a group instead of treating classes one at a time. \citet{bairaktari2025kandinsky} give the most
+general form of this, allowing overlapping and fractional group memberships defined jointly on
+covariates and labels, obtained from a single quantile regression over the span of the group
+functions. Our descriptors could serve as such group functions, which would replace our
+empirical claim for zero-example classes with a group-conditional guarantee, at the price of a
+guarantee about neighbourhoods in $\varphi$-space instead of about individual classes. We regard
+this as the most promising route to a formal statement in the $n_y=0$ regime and do not pursue
+it here.
+
+\paragraph{Conformal prediction under distribution shift.} Coverage can be restored under
+covariate shift by importance-weighting the calibration scores \cite{tibshirani2019conformal},
+or over time by adapting the miscoverage level from observed errors \cite{gibbs2021adaptive}.
+Both require something our setting does not provide, namely a density ratio or online label
+feedback, so we cite them as the route to a guarantee and read our corrupted-input experiment
+as a stress test, making no coverage claim there (\cref{app:imagenetc}).
+
+\paragraph{Long-tailed recognition.} Reweighting and logit adjustment improve accuracy under
+class imbalance \cite{menon2021long}, and fine-grained biodiversity datasets have made the
+regime concrete \cite{garcin2021plantnet,vanhorn2018inaturalist}. Our concern is complementary
+and post-hoc: given whatever classifier such methods produce, how should its prediction sets
+be calibrated for the classes that training consumed.

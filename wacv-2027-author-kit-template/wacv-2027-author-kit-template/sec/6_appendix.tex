@@ -1,0 +1,524 @@
+\appendix
+\section{Proof of the marginal coverage guarantee}
+\label{app:proof}
+
+Write $\tilde s(x,y)=s(x,y)-\tilde\delta_y$ for the corrected score, and recall from
+\cref{sec:splits} that $\tilde\delta_\cdot$ is built from $\varphi(\cdot)$ and from the rows
+$\mathcal{I}_{\mathrm{fit}}$, while $c$ is computed from the disjoint rows
+$\mathcal{I}_{\mathrm{rec}}$.
+
+\emph{Step 1: $\tilde s$ is a fixed function.} $\varphi$ is a function of the classifier's
+weights, and $g_\theta$, $\lambda$ and $n_{\mathrm{cal}}$ are functions of
+$(X_i,Y_i)_{i\in\mathcal{I}_{\mathrm{fit}}}$. None of them reads
+$(X_i,Y_i)_{i\in\mathcal{I}_{\mathrm{rec}}}$ or the test point. Conditionally on
+$\mathcal{I}_{\mathrm{fit}}$, therefore, $\tilde s$ is a deterministic map
+$\mathcal{X}\times\mathcal{Y}\to\mathbb{R}$, fixed before any of the rows that will be used to
+calibrate $c$ are seen. All statements below are conditional on
+$\mathcal{I}_{\mathrm{fit}}$; since the bound obtained is uniform in it, the unconditional
+bound follows by averaging.
+
+\emph{Step 2: exchangeability survives.} If $(Z_1,\dots,Z_m)$ is exchangeable and $f$ is a
+fixed measurable map, then $(f(Z_1),\dots,f(Z_m))$ is exchangeable, because for any permutation
+$\pi$ the vector $(f(Z_{\pi(1)}),\dots,f(Z_{\pi(m)}))$ is the image under the same product map
+of a vector equal in distribution to $(Z_1,\dots,Z_m)$. Applying this with
+$Z_i=(X_i,Y_i)$ for $i\in\mathcal{I}_{\mathrm{rec}}\cup\{n+1\}$ and $f=\tilde s$ gives that
+$\{\tilde s(X_i,Y_i)\}_{i\in\mathcal{I}_{\mathrm{rec}}}\cup\{\tilde s(X_{n+1},Y_{n+1})\}$ is
+exchangeable.
+
+\emph{Step 3: the split conformal bound.} For exchangeable real random variables
+$V_1,\dots,V_{n_{\mathrm{rec}}},V_{n+1}$ and $c$ the empirical quantile of
+$V_1,\dots,V_{n_{\mathrm{rec}}}$ at level
+$\lceil (n_{\mathrm{rec}}+1)(1-\alpha)\rceil/n_{\mathrm{rec}}$, the standard argument
+\cite{vovk2005algorithmic,angelopoulos2023gentle} gives
+$\mathbb{P}(V_{n+1}\le c)\ge 1-\alpha$. Take $V_i=\tilde s(X_i,Y_i)$.
+
+\emph{Step 4: the event is set membership.} By \cref{eq:set},
+$y\in\mathcal{C}(x)\iff s(x,y)\le\hat q+\tilde\delta_y+c\iff\tilde s(x,y)\le \hat q+c$, so
+absorbing the constant $\hat q$ into the threshold, $\{Y_{n+1}\in\mathcal{C}(X_{n+1})\}$ is
+exactly $\{\tilde s(X_{n+1},Y_{n+1})\le \hat q + c\}$ and Step 3 applies. $\square$
+
+\paragraph{What the proof does not give.} Only one scalar is calibrated on
+$\mathcal{I}_{\mathrm{rec}}$, so $\tilde\delta_y$ may be arbitrarily complex without affecting
+the argument; but for the same reason the conclusion is a statement about the marginal
+distribution alone. Nothing here bounds
+$\mathbb{P}(Y_{n+1}\in\mathcal{C}(X_{n+1})\mid Y_{n+1}=y)$ for any particular $y$, and for a
+class with $n_y=0$ no such bound is available to any procedure. The disjointness in Step 1 is
+also load-bearing: an earlier version of our code selected $\lambda$ over all classes including
+the held-out ones, which does not merely bias an estimate but removes the premise, and it moved
+the reported effect from $0.3$ to $0.5$ on the diagnostic we caught it with.
+
+\section{Pre-registration and the fallback policy}
+\label{app:prereg}
+
+Two documents were frozen before any experiment in this paper was run, and both are in the
+released repository. We summarise what they fix, because several of the choices would otherwise
+look like decisions made after seeing results.
+
+\paragraph{Measurability thresholds.} A survey of the score dumps, not of our memory, recorded
+the median number of evaluation examples per class: $1168$ on ImageNet, $100$ on CIFAR-100,
+$3$ on Pl@ntNet-300K and $2$ on iNaturalist-2018. With two examples a class's coverage can only
+be $0$, $\tfrac12$ or $1$, so a minimum over $8142$ such classes is almost surely $0$ for every
+procedure including the oracle, and differences between methods in that column carry no
+information. The rule fixed in advance is therefore a median of at least $30$ evaluation
+examples per class for per-class statistics (regime~A) and at least $200$ pooled evaluation rows
+per prevalence bin otherwise (regime~B). Below the threshold, per-class statistics are still
+computed but are written under a \texttt{withheld\_unmeasurable} key and may not enter a table
+or decide a verdict. The same rule was later applied to $\lambda$ \emph{selection} as well as to
+reporting, which was an omission we found on 2026-08-15 and fixed.
+
+\paragraph{Behaviour of each baseline at $n_y=0$.} What each competitor emits for a class with
+no calibration examples was written down before its released code was read: an infinite
+threshold for classwise CP and for RC3P, a fall-back to the marginal threshold for Clustered CP
+through its null cluster, and a kernel-weighted quantile over labelled classes for the method of
+\citet{ding2026conformal}. All four predictions were then confirmed against the code. The
+fall-back policy applied to an infinite threshold, namely substituting $\hat q$, was fixed at
+the same time; it is what produces the zeros in \cref{tab:competitors}, and \cref{sec:comp}
+says so in the text so that a zero is not read as a measurement.
+
+\paragraph{Changes made after seeing results.} Three, all recorded. The oracle ceiling was
+redefined from the unshrunk to the shrunk per-class quantile after PCC exceeded the unshrunk
+version, for the reason given in \cref{app:oracle}. The calibration fraction was raised from
+$0.50$ to $0.70$ after two points of the calibration-depth sweep turned out not to be binding on
+a thin slice. The $\lambda$ ablation was extended from five splits to ten after it missed
+Holm-corrected significance at five ($p=0.0094$ against a threshold of $0.0083$); it passes at
+ten, and we report the number of splits for every table.
+
+\section{The oracle ceiling, shrunk and unshrunk}
+\label{app:oracle}
+
+The ceiling reported in the main text is the \emph{best shrinkage} of a perfect per-class
+offset: we form $\delta_y$ from the test labels and then select $\lambda$ for it exactly as
+the method does. An earlier version used the unshrunk per-class quantiles, and PCC exceeded
+it --- which is how we learned that the unshrunk version is not a bound. It is $\lambda=1$
+applied to a perfect offset, and $\lambda=1$ is harmful for worst-class coverage
+(\cref{tab:ablation}).
+
+Across all $228$ configurations the two definitions agree in
+$194$ cases, because the oracle's own shrinkage selects
+$\lambda_{\text{oracle}}=1$ there; on the primary ImageNet arm they coincide at $+0.140$, so
+the correction does not move that headline number. Where they differ, they differ by a lot,
+and always in the same direction. \Cref{tab:oracle} lists the five largest gaps: the unshrunk
+``ceiling'' falls as low as $-0.657$, far \emph{below} the marginal threshold it is supposed
+to bound from above.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+Configuration & Shrunk & Unshrunk & $\lambda_{\text{oracle}}$ \\
+\midrule
+C\_comp\_competitors\_s1 & $+0.0487$ & $-0.6571$ & $0.10$ \\
+H\_heldout\_ho0p5\_s2 & $+0.1928$ & $-0.4605$ & $0.70$ \\
+C\_comp\_competitors\_s2 & $+0.1569$ & $-0.4902$ & $0.70$ \\
+H\_heldout\_ho0p7\_s2 & $+0.0667$ & $-0.5733$ & $0.70$ \\
+H\_heldout\_ho0p9\_s2 & $+0.1579$ & $-0.4605$ & $0.70$ \\
+\bottomrule
+\end{tabular}
+\caption{The five configurations where the two ceiling definitions differ most. A quantity
+that can sit $0.65$ below the baseline it is meant to bound is not a ceiling; the shrunk
+version cannot be exceeded by PCC by construction, since PCC optimises the same $\lambda$
+over a worse $\delta$.}
+\label{tab:oracle}
+\end{table}
+
+\section{Why recalibration is invisible at matched size}
+\label{app:invisible}
+
+Let $t_y=\hat q+\tilde\delta_y+c$ be the thresholds a variant emits and let $T$ be the target
+average set size. The matched comparison reports each variant at $t_y+\sigma$, where $\sigma$
+solves $\frac1N\sum_i|\{y:s(X_i,y)\le t_y+\sigma\}|=T$. Adding a constant $a$ to every
+threshold replaces $t_y$ by $t_y+a$ and hence $\sigma$ by $\sigma-a$, leaving
+$t_y+a+(\sigma-a)=t_y+\sigma$ unchanged, so the matched thresholds are identical. Marginal recalibration adds exactly such a
+constant, and so does the $n^\star$ rule when it substitutes one global value, which is why both
+ablations must read $0.0000$ in \cref{tab:ablation}. The zero is a property of the comparison and
+carries no information about the component.
+
+\Cref{tab:invisible} gives the view in which the component is visible, namely the thresholds as
+emitted, over ten ImageNet splits. Recalibration buys $0.0026$ of marginal coverage for $0.31$
+of average set size. Two further readings matter. First, the raw \textsc{Pcc} thresholds are far
+wider than the marginal ones, $2.31$ against $1.21$, so this view cannot be used to compare
+methods and exists only to show where marginal validity lives; the size matching in the main
+tables removes exactly this difference. Second, \textsc{Pcc} lands at $0.8989$ against a target
+of $0.900$ while the marginal threshold lands at $0.9013$ on the same rows. The deficit of
+$0.0024$ is about thirty times the finite-sample slack $1/(n+1)$ and is the measured cost of
+letting $g_\theta$, $\lambda$ and $c$ share calibration rows, as discussed in
+\cref{sec:guarantee}.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcc}
+\toprule
+Thresholds as emitted & Marginal cov. & Set size \\
+\midrule
+Marginal threshold $\hat q$        & $0.9013$ & $1.21$ \\
+\textsc{Pcc}, no recalibration     & $0.8963$ & $2.00$ \\
+\textsc{Pcc}, with recalibration   & $0.8989$ & $2.31$ \\
+\midrule
+Target                             & $0.9000$ & --- \\
+\bottomrule
+\end{tabular}
+\caption{The unmatched view, ten ImageNet splits, $\alpha=0.10$. Recalibration moves marginal
+coverage towards the target and costs set size. The matched comparison used everywhere else
+cancels this shift by construction.}
+\label{tab:invisible}
+\end{table}
+
+\section{Additional backbones, endogenous and exogenous descriptors}
+\label{app:backbones}
+
+We hypothesised that the two additional backbones failed because each was given its own
+classifier head as $\varphi$, making the descriptors endogenous to the model that produced the
+scores. \Cref{tab:backbones} refutes it: with a fixed ResNet-50 head instead --- whose weights
+correlate $0.001$ element-wise with each model's own head, so it is genuinely exogenous ---
+every interval still contains zero.
+
+The reason is visible in the last column. All six arms have $35$ evaluation examples per class,
+because ImageNet's validation split provides only $50$ per class in total and some must go to
+calibration. \Cref{fig:evaldepth} places $35$ below the depth at which any effect is
+detectable, so these experiments are inconclusive rather than negative. Settling the question
+needs an evaluation set larger than the validation split.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llccc}
+\toprule
+Backbone & $\varphi$ head & $\Delta$ worst & 95\% CI & Eval/class \\
+\midrule
+ConvNeXt-T \cite{liu2022convnet} & own & $+0.0000$ & $[+0.000,+0.000]$ & $35$ \\
+ConvNeXt-T \cite{liu2022convnet} & fixed & $+0.0114$ & $[-0.017,+0.040]$ & $35$ \\
+ResNet-50 \cite{he2016deep} & own & $+0.0171$ & $[-0.005,+0.040]$ & $35$ \\
+ResNet-50 \cite{he2016deep} & fixed & $+0.0057$ & $[-0.005,+0.017]$ & $35$ \\
+ViT-B/16 \cite{dosovitskiy2021image} & own & $-0.0286$ & $[-0.072,+0.015]$ & $35$ \\
+ViT-B/16 \cite{dosovitskiy2021image} & fixed & $-0.0114$ & $[-0.066,+0.043]$ & $35$ \\
+\bottomrule
+\end{tabular}
+\caption{Both descriptor arms on three backbones, five splits. ``own'' uses each model's own
+classifier head, ``fixed'' the ResNet-50 head also used for ImageNet. Top-1 accuracies of all
+three matched published values to four decimal places, which we used as a correctness check on
+the weight extraction.}
+\label{tab:backbones}
+\end{table}
+
+\section{Long-tailed datasets under a measurability threshold}
+\label{app:longtail}
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{llccc}
+\toprule
+Dataset & Thr. & Classes kept & $\Delta$ worst-class & $\lambda$ \\
+\midrule
+Pl@ntNet & $\ge 35$ & $151/1081$ & $+0.020\ [-0.011,+0.052]$ & $0.22$ \\
+Pl@ntNet & $\ge 75$ & $\ \ 98/1081$ & $\mathbf{+0.019}\ [+0.010,+0.028]$ & $0.22$ \\
+iNat-2018 & $\ge 35$ & $237/8142$ & $+0.000$ & $0.00$ \\
+iNat-2018 & $\ge 75$ & $\ \ 75/8142$ & $+0.000$ & $0.00$ \\
+\bottomrule
+\end{tabular}
+\caption{Restricting evaluation to classes whose slice can support a per-class estimate. Five
+splits. Pl@ntNet recovers a significant improvement; iNaturalist does not, and there
+$\lambda=0$ means the method declines to act rather than acting and failing.}
+\label{tab:longtail}
+\end{table}
+
+The threshold changes the label space, so the row counts matter. On Pl@ntNet-300K the
+$\ge 75$ rule keeps $98$ of $1081$ classes, of which $34$ are held out, and the survivors carry
+a median of $116$ calibration and $198$ evaluation examples each. At $\ge 35$ it keeps $151$
+classes with medians of $69$ and $116$. The improvement is significant at the stricter threshold
+and not at the looser one, which is the ordering \cref{fig:evaldepth} predicts, since $35$ sits
+at the edge of measurability while $75$ is clear of it.
+
+On iNaturalist-2018 the survivors are not starved either: at $\ge 35$ the $237$ surviving
+classes hold a median of $40$ calibration and $56$ evaluation examples. \Cref{tab:inatcurve}
+gives the shrinkage curve on its labelled classes and explains the zero. The curve decreases
+monotonically, so $\hat\delta$ is not degenerate; it carries signal, and the signal is wrong.
+Because the grid contains $\lambda=0$, the selection step returns the marginal threshold and the
+method neither helps nor harms. The cross-validated error of $g_\theta$ is $0.127$ here against
+$0.036$ on ImageNet, so the regression is roughly three and a half times worse in a label space
+eight times larger, fitted in a descriptor space of the same dimension. We did not test whether
+richer descriptors recover the signal and state that as the open question.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccc}
+\toprule
+$\lambda$ & $0$ & $0.1$ & $0.2$ & $0.3$ & $0.5$ & $1.0$ \\
+\midrule
+worst-class & $\mathbf{0.699}$ & $0.466$ & $0.408$ & $0.385$ & $0.350$ & $0.319$ \\
+\bottomrule
+\end{tabular}
+\caption{Shrinkage curve on the labelled classes of iNaturalist-2018, mean over five splits, at
+the $\ge 75$ threshold. Every positive $\lambda$ is worse than none, so the selection step
+returns $\lambda=0$. A flat curve would have meant $\hat\delta$ was degenerate; a decreasing one
+means it is informative and points the wrong way.}
+\label{tab:inatcurve}
+\end{table}
+
+\section{ImageNet-C, per corruption}
+\label{app:imagenetc}
+
+\Cref{tab:imagenetc} reports all $15$ corruptions at severities $3$ and $5$, three splits
+each. Calibration uses clean images and evaluation uses corrupted ones, so exchangeability
+fails and no method retains a coverage guarantee here (\cref{sec:shift}).
+
+The empty-set column is the direct evidence of that. It ranges from
+$0.063$ (brightness, severity 3) to
+$0.757$ (contrast, severity 5), and an
+average set size below $1.0$ is only possible when a large share of test points receive
+\emph{nothing}. A threshold calibrated on clean images does not give narrow sets on corrupted
+ones; it abstains. Coverage and set size both merely look ``low'' in that regime, which is why
+we added this column.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{llcccc}
+\toprule
+Corruption & Sev. & $\Delta$ worst & Coverage & Set size & Empty \\
+\midrule
+brightness & 3 & $+0.0200$ & $0.841$ & $1.345$ & $0.063$ \\
+brightness & 5 & $+0.0067$ & $0.746$ & $1.362$ & $0.103$ \\
+contrast & 3 & $-0.0133$ & $0.600$ & $1.297$ & $0.171$ \\
+contrast & 5 & $+0.0000$ & $0.053$ & $0.317$ & $0.757$ \\
+defocus\_blur & 3 & $+0.0067$ & $0.500$ & $1.146$ & $0.268$ \\
+defocus\_blur & 5 & $+0.0000$ & $0.229$ & $0.763$ & $0.497$ \\
+elastic\_transform & 3 & $+0.0000$ & $0.706$ & $1.355$ & $0.112$ \\
+elastic\_transform & 5 & $+0.0000$ & $0.264$ & $1.422$ & $0.164$ \\
+fog & 3 & $+0.0133$ & $0.629$ & $1.345$ & $0.143$ \\
+fog & 5 & $+0.0000$ & $0.360$ & $1.157$ & $0.264$ \\
+frost & 3 & $+0.0000$ & $0.441$ & $1.187$ & $0.247$ \\
+frost & 5 & $+0.0000$ & $0.331$ & $1.095$ & $0.305$ \\
+gaussian\_noise & 3 & $+0.0067$ & $0.509$ & $1.266$ & $0.201$ \\
+gaussian\_noise & 5 & $+0.0000$ & $0.096$ & $0.636$ & $0.545$ \\
+glass\_blur & 3 & $+0.0000$ & $0.278$ & $1.076$ & $0.326$ \\
+glass\_blur & 5 & $+0.0000$ & $0.141$ & $0.762$ & $0.500$ \\
+impulse\_noise & 3 & $+0.0133$ & $0.502$ & $1.309$ & $0.188$ \\
+impulse\_noise & 5 & $+0.0000$ & $0.113$ & $0.674$ & $0.523$ \\
+jpeg\_compression & 3 & $+0.0200$ & $0.772$ & $1.372$ & $0.085$ \\
+jpeg\_compression & 5 & $+0.0067$ & $0.522$ & $1.309$ & $0.184$ \\
+motion\_blur & 3 & $+0.0067$ & $0.512$ & $1.206$ & $0.236$ \\
+motion\_blur & 5 & $+0.0000$ & $0.220$ & $0.885$ & $0.425$ \\
+pixelate & 3 & $+0.0067$ & $0.685$ & $1.378$ & $0.112$ \\
+pixelate & 5 & $+0.0000$ & $0.371$ & $1.190$ & $0.258$ \\
+shot\_noise & 3 & $+0.0000$ & $0.470$ & $1.244$ & $0.213$ \\
+shot\_noise & 5 & $+0.0000$ & $0.113$ & $0.714$ & $0.492$ \\
+snow & 3 & $+0.0000$ & $0.494$ & $1.297$ & $0.184$ \\
+snow & 5 & $+0.0000$ & $0.262$ & $1.002$ & $0.349$ \\
+zoom\_blur & 3 & $+0.0000$ & $0.528$ & $1.280$ & $0.190$ \\
+zoom\_blur & 5 & $+0.0000$ & $0.367$ & $1.152$ & $0.272$ \\
+\bottomrule
+\end{tabular}
+\caption{ImageNet-C, per corruption and severity, three splits. $\Delta$ worst is the change
+in worst-class coverage on held-out classes at matched set size. Pooled over all $90$
+conditions the improvement is $+0.003$ $[+0.001,+0.005]$.}
+\label{tab:imagenetc}
+\end{table}
+
+\section{Which classes the correction moves}
+\label{app:whohelped}
+
+Worst-class coverage is a minimum, so an improvement in it says nothing on its own about the
+rest of the label space. \Cref{tab:whohelped} therefore reports, for the primary ImageNet
+configuration, the mean change in per-class coverage grouped into prevalence quintiles, along
+with the fraction of classes whose coverage rises and falls. Numbers are from the first split,
+which is the only one for which we stored the per-class breakdown.
+
+The pattern is the one an equity intervention at a fixed resource budget should produce. The
+worst class rises from $0.569$ to $0.647$ and macro-coverage moves from $0.898$ to $0.896$,
+while $12\%$ of classes gain coverage and $27\%$ lose a small amount of it. Since the
+comparison holds average set size fixed, coverage given to the classes that were failing has to
+come from somewhere, and it comes in thin slices from the classes that had coverage to spare.
+Whether that trade is worth making is a decision about the application rather than about the
+method, which is why we report both the minimum and the average throughout.
+
+Prevalence carries little information in this particular table, because ImageNet's held-out
+classes have between $1147$ and $1182$ training images and are therefore close to balanced.
+The quintiles are included so that the same table can be read for the long-tailed datasets,
+where prevalence does vary over three orders of magnitude.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+Prevalence quintile & Classes & Median prev. & Mean $\Delta\hat c_y$ \\
+\midrule
+1 (most frequent) & $60$ & $1147$ & $-0.0005$ \\
+2                 & $60$ & $1163$ & $-0.0033$ \\
+3                 & $60$ & $1169$ & $-0.0033$ \\
+4                 & $60$ & $1174$ & $+0.0007$ \\
+5 (least frequent)& $60$ & $1182$ & $-0.0020$ \\
+\midrule
+\multicolumn{4}{l}{Classes improved $12.3\%$, worsened $26.7\%$} \\
+\multicolumn{4}{l}{Worst class $0.569 \rightarrow 0.647$, same class before and after} \\
+\bottomrule
+\end{tabular}
+\caption{Change in per-class coverage on the $300$ held-out ImageNet classes, by prevalence
+quintile, at matched average set size. The correction concentrates its effect on the failing
+classes and pays for it with small reductions spread across the rest.}
+\label{tab:whohelped}
+\end{table}
+
+\section{Score-level interventions do not equalise class coverage}
+\label{app:score-level}
+
+\Cref{sec:setup} argues that improving $s(x,y)$ cannot equalise coverage across classes,
+because any such change moves every class in the same direction and supplies no per-class
+degree of freedom. \Cref{tab:scorelevel} is the measurement behind that argument. We built four
+score functions from the same backbone, the plain softmax and three aggregations over augmented
+copies of the input, and evaluated each with the marginal threshold across two miscoverage
+levels, three descriptor families and three splits, for $48$ configurations.
+
+The four scores are close to indistinguishable in worst-class coverage. At $\alpha=0.10$ and
+matched to within $0.03$ in average set size they give $0.534$, $0.485$, $0.534$ and $0.518$,
+so the spread across four quite different score constructions is $0.049$, and two of the three
+augmentation-based scores are \emph{worse} than the plain softmax. Their macro-coverage and
+marginal coverage agree to three decimal places. This is what a score-level intervention looks
+like when the objective is a minimum over classes.
+
+Two honest caveats. The comparison is on one backbone and one dataset, so it supports the
+structural argument and does not substitute for it. And this configuration has a median of $25$
+evaluation examples per class, which \cref{sec:depth} places below the measurability threshold,
+so the near-zero effect of \textsc{Pcc} in the last column of \cref{tab:scorelevel} is
+uninformative about \textsc{Pcc}. That configuration is in fact the fifth instance of the
+evaluation-depth pattern we found, and we found it before we understood the pattern, which is
+part of why the diagnosis in \cref{sec:depth} took three attempts.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccc}
+\toprule
+Score & Worst-class & Set size & Macro & $\Delta$ \textsc{Pcc} \\
+\midrule
+Softmax (LAC)          & $0.534$ & $1.256$ & $0.900$ & $-0.005$ \\
+Average over augment.  & $0.485$ & $1.228$ & $0.898$ & $+0.002$ \\
+Learned aggregation    & $0.534$ & $1.233$ & $0.899$ & $+0.001$ \\
+Uncertainty-modulated  & $0.518$ & $1.230$ & $0.900$ & $-0.003$ \\
+\bottomrule
+\end{tabular}
+\caption{Four score functions on the same backbone under the marginal threshold, held-out
+classes, $\alpha=0.10$, three splits. Changing the score leaves worst-class coverage within
+$0.049$ and does not order the scores the way marginal coverage would. The last column reports
+what \textsc{Pcc} adds on top of each, in a configuration whose $25$ evaluation examples per
+class put it below the depth at which the statistic can move (\cref{sec:depth}).}
+\label{tab:scorelevel}
+\end{table}
+
+\section{Splitting the calibration rows}
+\label{app:split}
+
+\Cref{prop:marginal} requires the rows used to build $\tilde\delta$ and the rows used to
+calibrate $c$ to be disjoint, and the configuration reported throughout \cref{sec:exp} does not
+provide that: $g_\theta$, $\lambda$, $n_{\mathrm{cal}}$ and $c$ all read the same calibration
+rows. We measured the cost of the reuse in \cref{app:invisible}, where \textsc{Pcc} lands
+$0.0024$ of marginal coverage below the marginal threshold on the same rows.
+
+\textsc{Pcc}-split is the variant the proposition covers. The calibration rows of each labelled
+class are divided in two by a per-class random split; the first part estimates $\delta_y$, fits
+$g_\theta$ and selects $\lambda$ and $n_{\mathrm{cal}}$, and the second part is used for nothing
+except the conformal quantile that gives $c$. Held-out classes and evaluation rows are untouched
+in both variants, so the comparison isolates the effect of the reuse. The cost is statistical:
+each half has half the rows, which makes $g_\theta$ noisier and $c$ less precise, and
+\cref{tab:depth} shows that halving calibration depth from $100$ to $50$ examples per class
+costs about $0.019$ of worst-class improvement.
+
+\TODO{Fill from the PCC-split run: marginal coverage at the emitted thresholds against the
+$1-\alpha$ target, the width of the finite-sample interval, and $\Delta$ worst-class on
+held-out classes beside the reuse variant, ten splits. This is the only number in the paper
+that is not yet measured; the run is CPU-only.}
+
+\section{Descriptor choices}
+\label{app:descriptors}
+
+The nine features are $\|w_y\|_2$, $b_y$, the cosine distance from $w_y$ to its nearest
+competing row, the mean cosine distance to its $k$ nearest rows for $k\in\{5,10,50\}$, the
+spread of those distances, the cosine distance to the mean row, and $\log$ prevalence. A tenth
+candidate, the cosine distance to the single nearest row computed at $k=1$, is the feature
+closest in construction to the regression target and is held out of the feature set for that
+reason.
+
+\Cref{tab:ablation} ablates by feature group. Distances alone and prevalence alone are both
+significantly worse than the full set, while removing prevalence is not, so the geometric
+features carry the signal and the one label-derived feature is dispensable. The neighbour
+counts $k\in\{5,10,50\}$ were fixed in advance and never tuned; $k=1$ enters only through the
+nearest-row distance and the margin. The cross-validated error of $g_\theta$ is stable across
+splits, at $0.0356$ to $0.0372$ over the five ImageNet splits, and the selected $\lambda$ is
+$0.1$ in all five, which is the sense in which the fit is not delicate.
+
+\TODO{Fill from the descriptor-sensitivity run: Euclidean in place of cosine, the head bias
+dropped, and neighbour counts $\{1,2,5\}$ and $\{10,20,100\}$ in place of $\{5,10,50\}$, each at
+five splits. Report $\Delta$ worst-class and the ridge coefficients so a reader can see which
+features the fit actually uses.}
+
+\section{Runtime}
+\label{app:runtime}
+
+We report the cost of a whole configuration rather than of individual operations, because
+that is what the run logs measure and it is the number a practitioner cares about.
+\Cref{tab:runtime} gives the median wall-clock time per configuration for each phase of the main
+experiment. \textsc{Pcc} itself adds no training: the descriptors are read from the classifier's
+weight matrix, $g_\theta$ is a closed-form ridge fit over at most $K$ points with $p=9$
+features, and the shrinkage grid evaluates eight thresholds. No images, gradients or GPU are
+involved at any point after the score dump exists.
+
+The competitors dominate the cost. A configuration that additionally runs the seven competitor
+entries takes $476$\,s against $128$\,s without them, so the comparison costs roughly $350$\,s
+per split, or about $2.7$ times the whole rest of the pipeline. Most of that is the
+kernel-weighted variants, which are evaluated at five bandwidths each. The complete experiment
+in this paper is $228$ configurations and $5.6$ hours of CPU time.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrr}
+\toprule
+Phase & Content & Configs & Median \\
+\midrule
+C & competitor comparison    & $3$  & $481$\,s \\
+D & ImageNet-C               & $90$ & $21$\,s \\
+E & additional backbones     & $30$ & $21$\,s \\
+F & evaluation-depth sweep   & $25$ & $235$\,s \\
+G & long-tailed datasets     & $20$ & $63$\,s \\
+H & held-out fraction sweep  & $25$ & $131$\,s \\
+S & score and $\alpha$ sweep & $35$ & $127$\,s \\
+\midrule
+\multicolumn{3}{l}{Total, $228$ configurations} & $5.6$\,h \\
+\bottomrule
+\end{tabular}
+\caption{Wall-clock cost per configuration, one CPU core, measured from the run reports. Phase D
+and E are fast because their evaluation slices are small; phase F is slow because each of its
+five depth caps is run at ten splits.}
+\label{tab:runtime}
+\end{table}
+
+\section{Reproducibility}
+\label{app:repro}
+
+All $228$ configurations write one JSON report each, containing the resolved configuration,
+the seed, every metric in \cref{tab:metrics} for both tables, the selected $\lambda$ and its
+whole curve, the measurability regime, wall-clock time, the interpreter and package versions,
+and the git commit of the code that produced it. The pre-registration documents summarised in
+\cref{app:prereg} are in the same repository and are dated before the runs.
+
+Two limitations of the comparison should be stated rather than implied. First, competitors are
+invoked from their authors' released implementations, which we consider the only defensible way
+to report a competitor's behaviour at $n_y=0$, but we have \emph{not} reproduced their published
+numbers on their own benchmarks; our claim is about what their code does on our data, not about
+whether we have implemented their method as they would. Second, \textsc{Tacp} \cite{liu2026tail}
+is discussed in \cref{sec:related} and absent from \cref{tab:competitors} because its authors
+release no code and it is evaluated on benchmarks we do not have, so any row we produced would
+be our own reimplementation held to a lower standard than the rest of the table.

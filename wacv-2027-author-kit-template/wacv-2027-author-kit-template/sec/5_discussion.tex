@@ -1,0 +1,70 @@
+\section{Discussion}
+\label{sec:discussion}
+
+We have shown that a per-class conformal correction can be predicted from label-free
+descriptors of the class and applied to classes that have no calibration examples at all. On
+ImageNet it takes $70\%$ of an oracle ceiling on those classes, improves on every existing
+method we were able to run, two of which are undefined for all of them, and needs labels for as
+few as a tenth of the classes. Marginal coverage is preserved because only a single scalar is
+calibrated (\cref{prop:marginal}).
+
+\paragraph{Limitations.} There is no finite-sample class-conditional guarantee at $n_y=0$, for
+our method or for any other, and our claim for those classes is therefore empirical. The
+improvement attenuates for adaptive score functions and disappears at $\alpha=0.01$. We have
+also not shown that the approach transfers across architectures: the additional backbones leave
+only $35$ evaluation examples per class, which \cref{fig:evaldepth} places below the depth at
+which any effect is detectable, so those experiments do not settle the question in either
+direction. Settling that needs an evaluation set larger than ImageNet's validation split
+provides.
+
+Three further limitations are worth naming precisely. The percentages of the oracle ceiling we
+quote are ratios of averages, and the split-level spread behind them is wide: on the primary
+arm the fraction of the ceiling taken ranges from $2\%$ to $75\%$ across five splits, because
+the ceiling itself moves by $0.10$ between splits. Five splits is what ImageNet's validation
+set supports at this evaluation depth, and it is not many. Second, the depth at which the
+ceiling collapses was measured on one dataset at one miscoverage level; we validated the
+prediction it makes on Pl@ntNet-300K, but we did not check whether the threshold sits at $35$
+examples per class for other $\alpha$ or other label spaces, and we would not expect a single
+number to transfer exactly. Third, the configuration behind every table lets $g_\theta$,
+$\lambda$ and $c$ share calibration rows, which is not what \cref{prop:marginal} assumes; the
+measured cost is $0.0024$ of marginal coverage (\cref{app:invisible}) and the variant that
+satisfies the premise is reported separately (\cref{app:split}).
+
+\paragraph{Hypotheses we discarded.} Three explanations we held during the work were refuted by
+experiments designed to test them, and we record them with the measurements that ruled them
+out. We first attributed the failures to calibration depth, which its own sweep refuted, since
+ten calibration examples per class still yields a significant improvement. We then attributed
+the backbone failures to descriptors that were endogenous to the scoring model, which running
+both descriptor arms refuted, with every interval containing zero. Finally we attributed the
+null result on iNaturalist-2018 to scarce calibration data, whereas the surviving classes have
+$67.5$ examples each and the mechanism is instead that shrinkage selects $\lambda=0$ and the
+method declines to act.
+
+\paragraph{Evaluating class-conditional coverage.} The observation we expect to be most useful
+beyond this particular method is that worst-class coverage becomes unmeasurable before it
+becomes unachievable. Below roughly $35$ evaluation examples per class the oracle ceiling is
+zero, so a null result on such a slice says little about the method that produced it.
+Long-tailed benchmarks sit squarely in that regime, which means published comparisons on them
+may be reporting a property of the evaluation set where they intend to report a difference
+between methods. We
+state the measurability regime alongside every number for this reason, and the practice seems
+worth adopting more widely.
+
+\paragraph{Future work.} The most direct next step is a larger evaluation set for the rare
+classes themselves, since for Pl@ntNet-300K and iNaturalist-2018 the restriction used in
+\cref{tab:longtail} retains under $10\%$ of classes and the interesting question is what happens
+to the rest. A second question is why $\varphi$ carries signal at $K=1081$ classes but not at
+$K=8142$; the diagnostic in \cref{app:longtail} locates the failure in the regression, since the
+shrinkage curve there is informative and points the wrong way, so the selection step is doing
+its job. A third
+is whether richer descriptors, such as taxonomies, text embeddings of class names, or features of
+the training images of related classes, extend the reach of the method, since nothing in
+\cref{prop:marginal} requires $\varphi$ to be geometric.
+
+The most interesting direction is a formal statement to replace the empirical one. No
+procedure can bound coverage for an individual class with $n_y=0$. Group-conditional
+conformal prediction can bound coverage for a \emph{neighbourhood} of classes, however, and the
+framework of \citet{bairaktari2025kandinsky} accepts overlapping and fractional groups defined
+jointly on covariates and labels, which is exactly the shape our descriptors have. Groups drawn
+in $\varphi$-space would give a guarantee about regions of the classifier's output geometry, which
+is weaker than a per-class statement and much stronger than none.

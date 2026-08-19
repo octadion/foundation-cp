@@ -1,0 +1,23 @@
+%
+% --- inline annotations
+%
+\newcommand{\red}[1]{{\color{red}#1}}
+\newcommand{\todo}[1]{{\color{red}#1}}
+\newcommand{\TODO}[1]{\textbf{\color{red}[TODO: #1]}}
+% --- disable by uncommenting  
+% \renewcommand{\TODO}[1]{}
+% \renewcommand{\todo}[1]{#1}
+
+
+
+%
+% --- packages this paper needs
+%
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}          % \toprule \midrule \bottomrule
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{amsthm}
+\newtheorem{proposition}{Proposition}
+% cleveref must come AFTER hyperref; main.tex loads hyperref after this file, so it is
+% loaded there instead. See the note at the end of main.tex's preamble block.
