@@ -15,9 +15,16 @@ examples of class $y$, and let
 \hat q = \mathrm{Quantile}\Big(\{s(X_i,Y_i)\}_{i=1}^n;\ \tfrac{\lceil (n+1)(1-\alpha)\rceil}{n}\Big)
 \label{eq:qglobal}
 \end{equation}
-be the marginal conformal quantile. Classwise conformal prediction replaces $\hat q$ by a
-per-class quantile $\hat q_y$ computed from the $n_y$ examples of class $y$; equivalently it
-applies a per-class \emph{offset}
+be the marginal conformal quantile. For a set-valued procedure $\mathcal{C}$ we write
+\begin{equation}
+\mathrm{CondCov}(\mathcal{C},y) = \mathbb{P}\bigl(Y\in\mathcal{C}(X)\mid Y=y\bigr),
+\quad
+W(\mathcal{C}) = \min_{y\in\mathcal{Y}} \mathrm{CondCov}(\mathcal{C},y),
+\label{eq:worst}
+\end{equation}
+so $W$ is the worst-class coverage this paper reports. Classwise conformal prediction replaces
+$\hat q$ by a per-class quantile $\hat q_y$ computed from the $n_y$ examples of class $y$;
+equivalently it applies a per-class \emph{offset}
 \begin{equation}
 \delta_y \;=\; \hat q_y - \hat q ,
 \label{eq:delta}
@@ -40,10 +47,18 @@ the spread of per-class coverage therefore needs a degree of freedom per class, 
 $\delta_y$ supplies and a score-level change does not; \cref{app:score-level} measures this.
 
 \paragraph{Matched set size.} Coverage can always be bought with larger sets, so comparing
-coverage at unmatched set size compares nothing. Every method we report, ours included, is
-shifted by one global constant until its \emph{average set size} equals a common target, and
-worst-class coverage is read at that matched size. This is the resource-matched comparison
-used throughout \cref{sec:exp}.
+coverage at unmatched set size compares nothing. Writing
+$\mathcal{C}_\delta(x)=\{y: s(x,y)\le \hat q+\delta_y\}$ for the sets induced by an offset
+vector $\delta\in\mathbb{R}^{K}$, every method we report is shifted by the scalar
+\begin{equation}
+\sigma(\delta) \;=\;
+\inf\Bigl\{\,\sigma\in\mathbb{R} \;:\;
+\tfrac{1}{N}\textstyle\sum_{i=1}^{N}\bigl|\mathcal{C}_{\delta+\sigma}(X_i)\bigr| \;\ge\; T \Bigr\}
+\label{eq:sigma}
+\end{equation}
+for a common target size $T$, and worst-class coverage is read at $\delta+\sigma(\delta)$. We
+call $\bar\delta = \delta + \sigma(\delta)$ the \emph{matched} offset. This is the
+resource-matched comparison used throughout \cref{sec:exp}.
 
 \subsection{Calibration-label-free class descriptors}
 \label{sec:phi}
@@ -83,27 +98,61 @@ over at most $K$ points with $p\le 15$ features, which costs milliseconds
 \tilde\delta_y \;=\; \lambda\cdot g_\theta(\varphi(y)) ,
 \label{eq:shrink}
 \end{equation}
-with $\lambda$ selected on the labelled label space only, by maximising worst-class coverage
-at matched size over a fixed grid. This restriction matters, because choosing $\lambda$ with
-help from the held-out classes would allow a free parameter to manufacture the very result the
-held-out table is meant to test, and it would also void \cref{prop:marginal}.
+with $\lambda$ chosen over a fixed grid $\Lambda$ by maximising worst-class coverage at
+matched size on the labelled classes only,
+\begin{equation}
+\hat\lambda \;=\; \operatorname*{arg\,max}_{\lambda\in\Lambda}\;
+\widehat W_{\mathcal{Y}_{\mathrm{lab}}}\bigl(\mathcal{C}_{\overline{\lambda g_\theta(\varphi)}}\bigr),
+\label{eq:lambda}
+\end{equation}
+where $\widehat W_{\mathcal{Y}_{\mathrm{lab}}}$ is the empirical version of \cref{eq:worst}
+restricted to $\mathcal{Y}_{\mathrm{lab}}$. The restriction matters, because choosing
+$\lambda$ with help from the held-out classes would let a free parameter manufacture the very
+result the held-out table is meant to test, and it would void \cref{prop:marginal}.
 
-Shrinkage is what makes the method usable. Worst-class coverage is governed by the largest
-error in $\tilde\delta$, which mean squared error does not control, so a predictor with a
-respectable $R^2$ can still be harmful at full strength: $\lambda=1$ costs $0.584$ relative to
-the selected $\lambda\approx0.1$, while $\lambda=0$ recovers the marginal threshold exactly
-(\cref{tab:ablation}).
+Shrinkage is what makes the method usable, and \cref{prop:sup} says why. Worst-class
+coverage is controlled by the \emph{largest} error in the offsets, a quantity mean squared
+error does not bound, so a predictor with a respectable $R^2$ can still be harmful at full
+strength: $\lambda=1$ costs $0.584$ relative to the selected $\lambda\approx0.1$, while
+$\lambda=0$ recovers the marginal threshold exactly (\cref{tab:ablation}).
 
-\paragraph{Accuracy required of $g_\theta$.} We have no theory saying when $\varphi$
-predicts $\delta$ well, and the honest summary is that the method works exactly as far as the
-regression does. Our three datasets happen to span a wide range of regression quality and line
-up monotonically with the outcome: the cross-validated mean squared error of $g_\theta$ is
-$0.036$ on ImageNet, $0.072$ on Pl@ntNet-300K and $0.127$ on iNaturalist-2018, against
-worst-class improvements of $0.058$, $0.019$ and $0.000$. The shrinkage step is what makes a
-poor regression safe instead of harmful, since it can select $\lambda=0$ and return the
-marginal threshold, and on iNaturalist-2018 that is what happens in every split
-(\cref{sec:depth}). A practitioner can therefore read $\lambda$ as a diagnostic, since it reports
-how much of $g_\theta$ the calibration data was willing to trust.
+\begin{proposition}[Worst-class coverage is a sup-norm functional]
+\label{prop:sup}
+Let $F_y(t)=\mathbb{P}(s(X,Y)\le t\mid Y=y)$ and suppose each $F_y$ is $L$-Lipschitz. For any
+two offset vectors $\delta,\delta'\in\mathbb{R}^{K}$ with matched versions
+$\bar\delta,\bar\delta'$ from \cref{eq:sigma},
+\begin{equation}
+\bigl|\,W(\mathcal{C}_{\bar\delta}) - W(\mathcal{C}_{\bar\delta'})\,\bigr|
+\;\le\; L\,\bigl\|\bar\delta-\bar\delta'\bigr\|_{\infty}.
+\label{eq:supbound}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+$\mathrm{CondCov}(\mathcal{C}_{\bar\delta},y)=F_y(\hat q+\bar\delta_y)$, so by Lipschitzness every $y$ obeys
+\begin{equation}
+|F_y(\hat q+\bar\delta_y)-F_y(\hat q+\bar\delta'_y)|
+\;\le\; L\,\|\bar\delta-\bar\delta'\|_\infty .
+\end{equation} Two functions of $y$ that agree
+pointwise to within $\varepsilon$ have minima that agree to within $\varepsilon$, and
+\cref{eq:worst} is such a minimum.
+\end{proof}
+
+Taking $\delta'$ to be the oracle offsets bounds our worst-class coverage below by the
+oracle's, less $L$ times the sup-norm error. The bound is in the sup norm, and a ridge fit
+controls a mean, so a single badly predicted class can cost as much as many well predicted ones
+save. Shrinking interpolates between two sup-norm errors: at $\lambda=0$ the error is
+$\|\bar\delta^\star\|_\infty$, the whole correction foregone, and at $\lambda=1$ it is the
+largest prediction error of $g_\theta$. When the second exceeds the first, an interior
+$\lambda$ beats both endpoints, which is what \cref{tab:ablation} measures.
+
+\paragraph{Accuracy required of $g_\theta$.} We have no theory saying when $\varphi$ predicts
+$\delta$ well, and the method works exactly as far as the regression does. Across our three
+datasets the two line up monotonically. The cross-validated error of $g_\theta$ is $0.036$ on
+ImageNet, $0.072$ on Pl@ntNet-300K and $0.127$ on iNaturalist-2018, against worst-class
+improvements of $0.058$, $0.019$ and $0.000$. Because \cref{eq:lambda} can return
+$\hat\lambda=0$, a poor regression is abstained from and not acted on, which is what happens
+on iNaturalist-2018 in every split (\cref{sec:depth}).
 
 \paragraph{Step 3: recalibrate.} Finally one scalar $c$ is refit, on labelled-class rows only,
 so that marginal coverage returns to $1-\alpha$. The prediction set is
@@ -111,6 +160,29 @@ so that marginal coverage returns to $1-\alpha$. The prediction set is
 \mathcal{C}(x) \;=\; \bigl\{\, y : s(x,y) \le \hat q + \tilde\delta_y + c \,\bigr\}.
 \label{eq:set}
 \end{equation}
+
+\begin{algorithm}[t]
+\small
+\caption{Predicted Class Correction}
+\label{alg:pcc}
+\begin{algorithmic}[1]
+\Require score $s$, level $\alpha$, target size $T$, grid $\Lambda$, count $n_{\mathrm{cal}}$
+\Require disjoint calibration rows $\mathcal{I}_{\mathrm{fit}},\mathcal{I}_{\mathrm{rec}}$;
+         labelled classes $\mathcal{Y}_{\mathrm{lab}}$; descriptors $\varphi$
+\State $\hat q \gets$ marginal conformal quantile \eqref{eq:qglobal} on
+       $\mathcal{I}_{\mathrm{fit}}$
+\For{$y\in\mathcal{Y}_{\mathrm{lab}}$ with $n_y\ge n_{\mathrm{cal}}$}
+  \State $\delta_y \gets \hat q_y - \hat q$ \Comment{observed offset \eqref{eq:delta}}
+\EndFor
+\State $g_\theta \gets$ ridge fit of $\delta$ on $\varphi$ over those classes
+\State $\hat\lambda \gets$ \eqref{eq:lambda}, on $\mathcal{Y}_{\mathrm{lab}}$ only
+\State $\tilde\delta_y \gets \hat\lambda\, g_\theta(\varphi(y))$ for \emph{every}
+       $y\in\mathcal{Y}$ \Comment{including $n_y=0$}
+\State $c \gets$ conformal quantile of
+       $\{s(X_i,Y_i)-\tilde\delta_{Y_i}\}_{i\in\mathcal{I}_{\mathrm{rec}}}$
+\State \Return $\mathcal{C}(x)=\{y : s(x,y)\le \hat q+\tilde\delta_y+c\}$
+\end{algorithmic}
+\end{algorithm}
 
 \subsection{Data splitting}
 \label{sec:splits}

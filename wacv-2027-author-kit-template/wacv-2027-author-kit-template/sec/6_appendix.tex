@@ -224,7 +224,7 @@ every interval still contains zero.
 
 The reason is visible in the last column. All six arms have $35$ evaluation examples per class,
 because ImageNet's validation split provides only $50$ per class in total and some must go to
-calibration. \Cref{fig:evaldepth} places $35$ below the depth at which any effect is
+calibration. \Cref{fig:sweeps}a places $35$ below the depth at which any effect is
 detectable, so these experiments are inconclusive rather than negative. Settling the question
 needs an evaluation set larger than the validation split.
 
@@ -278,7 +278,7 @@ The threshold changes the label space, so the row counts matter. On Pl@ntNet-300
 $\ge 75$ rule keeps $98$ of $1081$ classes, of which $34$ are held out, and the survivors carry
 a median of $116$ calibration and $198$ evaluation examples each. At $\ge 35$ it keeps $151$
 classes with medians of $69$ and $116$. The improvement is significant at the stricter threshold
-and not at the looser one, which is the ordering \cref{fig:evaldepth} predicts, since $35$ sits
+and not at the looser one, which is the ordering \cref{fig:sweeps}a predicts, since $35$ sits
 at the edge of measurability while $75$ is clear of it.
 
 On iNaturalist-2018 the survivors are not starved either: at $\ge 35$ the $237$ surviving
@@ -578,7 +578,7 @@ What the subsample does cost is precision, and the direction of that cost is the
 should be able to check rather than take on trust. Both of the depth results in this paper say
 the cost runs against us: \cref{tab:depth} shows worst-class improvement rising with
 calibration depth, from $0.033$ at ten examples per class to $0.059$ at $175$, and
-\cref{fig:evaldepth} shows the measurable effect rising with evaluation depth. A larger budget
+\cref{fig:sweeps}a shows the measurable effect rising with evaluation depth. A larger budget
 should therefore give a \emph{larger} number, which would make $250{,}000$ conservative.
 
 \Cref{tab:rowbudget} sweeps the budget over a factor of three, at five splits each. The
@@ -599,7 +599,7 @@ ceiling falls as the budget grows, from $0.140$ to about $0.116$. Worst-class co
 minimum over three hundred classes, and a minimum computed from $76$ evaluation examples per
 class is more extreme than one computed from $228$, for the method and for the oracle alike.
 Deeper evaluation makes the statistic less noisy and therefore less generous, which is the
-same effect \cref{fig:evaldepth} measures from the other direction.
+same effect \cref{fig:sweeps}a measures from the other direction.
 
 \begin{table}[h]
 \centering
@@ -616,7 +616,7 @@ $750$k & $532$ & $228$ & $+0.076\ [+0.034,+0.118]$ & $0.116$ \\
 \end{tabular}
 \caption{The row budget swept over a factor of three, five splits each, everything else at the
 primary configuration. No point estimate falls outside the intervals of the other two. The
-$250$k row reproduces the corresponding entry of \cref{fig:heldout} to four decimal places,
+$250$k row reproduces the corresponding entry of \cref{fig:sweeps}b to four decimal places,
 which is the check that the sweep shares the configuration of the rest of the paper.}
 \label{tab:rowbudget}
 \end{table}

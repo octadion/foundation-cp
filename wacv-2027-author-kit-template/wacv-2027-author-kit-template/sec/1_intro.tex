@@ -1,16 +1,6 @@
 \section{Introduction}
 \label{sec:intro}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\linewidth]{figures/fig_overview.pdf}
-\caption{(a) What existing methods can offer a class whose calibration set is empty, and what
-PCC offers instead. (b) The three steps: the offset is observed only where labels exist,
-regressed on descriptors read from the classifier's weights, then shrunk and recalibrated.
-Schematic; measured behaviours are in \cref{tab:competitors}.}
-\label{fig:overview}
-\end{figure}
-
 A prediction set replaces one fallible prediction with a short list that is likely to contain
 the true label. Conformal prediction turns any trained classifier into such a procedure, with
 a finite-sample coverage guarantee and no assumptions on the data distribution
@@ -31,8 +21,7 @@ setting. In long-tailed deployments most rare classes are consumed by model trai
 as \citet{ding2026conformal} note, leaves them with ``few or zero holdout examples to use for
 calibrating uncertainty quantification methods.'' The zero case is common: on Pl@ntNet-300K
 \cite{garcin2021plantnet} the median class has three held-out examples and on
-iNaturalist-2018 \cite{vanhorn2018inaturalist} it has two. \Cref{fig:overview}(a) and \cref{tab:methods} summarise
-what existing methods do with such a class. \textsc{Classwise} CP and \textsc{Rc3p} return an
+iNaturalist-2018 \cite{vanhorn2018inaturalist} it has two. \Cref{tab:methods} summarises what existing methods do with such a class. \textsc{Classwise} CP and \textsc{Rc3p} return an
 infinite threshold, so the prediction set becomes the entire label space. \textsc{Clustered} CP
 places the class in a null cluster and falls back to the shared marginal threshold. The
 kernel-weighted method of \citet{ding2026conformal} embeds each class by its own calibration
@@ -50,7 +39,7 @@ not involve any sample. Our goal is to use them to assign such a class a thresho
 while keeping the marginal coverage guarantee that split conformal prediction provides.
 
 \paragraph{Our approach.} Predicted Class Correction (PCC) proceeds in three steps
-(\cref{fig:overview}b). On the
+(\cref{alg:pcc}). On the
 classes that do have calibration data we observe the offset $\delta_y$ between the per-class
 conformal quantile and the marginal one, and fit a ridge regression of $\delta_y$ on the
 descriptors $\varphi(y)$. We then apply the fitted regression to every class, including those
@@ -69,9 +58,9 @@ of eight competitors, six of which change the statistic by exactly zero
 (\cref{tab:competitors}). (ii) Few classes need to be labelled for this to work: holding out
 $90\%$ of classes, which leaves $100$ labelled classes out of $1000$, still yields $0.052$
 with a confidence interval excluding zero, and the structural floor is $p+2$ labelled classes
-for $p$ descriptors (\cref{fig:heldout}). (iii) Below roughly $35$ evaluation examples per
+for $p$ descriptors (\cref{fig:sweeps}b). (iii) Below roughly $35$ evaluation examples per
 class, an oracle that observes the test labels cannot improve worst-class coverage either, so
 what disappears there is the room to improve and not the ability to take it
-(\cref{fig:evaldepth}). This one axis accounts for all four settings in which the method
+(\cref{fig:sweeps}a). This one axis accounts for all four settings in which the method
 initially appeared to fail, and restricting evaluation above the threshold recovers a
 significant improvement on Pl@ntNet-300K.
