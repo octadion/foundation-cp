@@ -596,14 +596,28 @@ def _competitor_thresholds(ltc_root, S_cal, y_cal, K, alpha, seed, P_cal=None,
                 continue
             cw[k] = float(np.atleast_1d(np.asarray(
                 cu.compute_qhat(S_cal[m], y_cal[m], alpha), dtype=float)).ravel()[0])
+            del m
         cw[~np.isfinite(cw)] = 1.0
         return cw, std
 
+    # Same stdout treatment as every other competitor. This loop calls the released
+    # compute_qhat K times, and K is 1000 here and 8142 on iNaturalist, so leaving it
+    # outside the capture is how a single configuration buries the log.
+    _buf = _io.StringIO()
     try:
-        _cw, _std = _interp_q_parts()
+        with contextlib.redirect_stdout(_buf):
+            _cw, _std = _interp_q_parts()
     except Exception as e:                                           # noqa: BLE001
         errs["interp_q"] = type(e).__name__ + ": " + str(e)[:200]
         _cw = None
+    finally:
+        _lines = [l for l in _buf.getvalue().splitlines() if l.strip()]
+        if _lines:
+            _c = chatter.setdefault("interp_q", {"n_lines": 0, "sample": []})
+            _c["n_lines"] += len(_lines)
+            for _l in _lines[:3]:
+                if _l not in _c["sample"] and len(_c["sample"]) < 3:
+                    _c["sample"].append(_l)
     if _cw is not None:
         for tau in INTERP_Q_WEIGHTS:
             _try("interp_q", (lambda t=tau: t * _cw + (1.0 - t) * _std),
