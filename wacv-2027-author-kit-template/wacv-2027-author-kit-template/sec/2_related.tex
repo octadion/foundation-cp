@@ -6,29 +6,20 @@
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}llll@{}}
+\begin{tabular}{@{}lll@{}}
 \toprule
-Method & Threshold $q_y$ from & If $n_y=0$ & Specific \\
+Method & $q_y$ built from & If $n_y=0$ \\
 \midrule
-\textsc{Standard} \cite{vovk2005algorithmic}
-  & one shared quantile      & shared quantile          & n/a \\
-\textsc{Classwise} \cite{sadinle2019least}
-  & own-class quantile       & undefined, $q_y=\infty$  & no \\
-\textsc{Clustered} \cite{ding2023class}
-  & cluster quantile         & null cluster, shared     & no \\
-\textsc{Rc3p} \cite{shi2024rank}
-  & quantile + rank budget   & undefined, $q_y=\infty$  & no \\
-\textsc{Fuzzy} \cite{ding2026conformal}
-  & kernel-weighted quantile & collapsed, shared        & no \\
-\textsc{Pas} \cite{ding2026conformal}
-  & one shared quantile      & shared quantile          & n/a \\
-\textsc{Interp-Q} \cite{ding2026conformal}
-  & $\tau q_y^{\mathrm{cw}}+(1-\tau)\hat q$ & capped, then blended & weakly \\
-\textsc{Tacp} \cite{liu2026tail}
-  & shared quantile, head penalty & head/tail only      & by group \\
+\textsc{Standard} \cite{vovk2005algorithmic}  & shared quantile   & shared \\
+\textsc{Classwise} \cite{sadinle2019least}    & own quantile      & $\infty$ \\
+\textsc{Clustered} \cite{ding2023class}       & cluster quantile  & shared \\
+\textsc{Rc3p} \cite{shi2024rank}              & quantile + rank   & $\infty$ \\
+\textsc{Fuzzy} \cite{ding2026conformal}       & kernel weights    & shared \\
+\textsc{Pas} \cite{ding2026conformal}         & shared quantile   & shared \\
+\textsc{Interp-Q} \cite{ding2026conformal}    & blend of the two  & capped \\
+\textsc{Tacp} \cite{liu2026tail}              & head penalty      & by group \\
 \midrule
-\textbf{PCC} (ours)
-  & $g_\theta(\varphi(y))$ from weights & predicted     & \textbf{yes} \\
+\textbf{PCC} (ours) & $g_\theta(\varphi(y))$ & \textbf{predicted} \\
 \bottomrule
 \end{tabular}
 \caption{Methods that give a class its own conformal threshold. All of them target at least
@@ -54,24 +45,20 @@ rank budget \cite{shi2024rank}. Most recently, \citet{ding2026conformal} embed e
 the quantiles of its own score distribution and compute a kernel-weighted quantile that
 borrows from nearby classes, alongside a prevalence-adjusted score function.
 
-That last method is the closest to ours in structure, and the difference between them is what
-this paper is about. Their embedding of class $y$ is computed from the labelled calibration
-scores of class $y$, so when a class has none the embedding is undefined and their
-implementation assigns it the extreme value of the embedding range, with the consequence that
-every zero-example class receives one shared threshold. Our descriptors are computed from the
-classifier's weights and never touch a label, so a class with zero examples still receives a
-threshold of its own. \Cref{tab:competitors} reports both behaviours measured on the same
-data.
+All of these embeddings are built from the labelled calibration scores of the class being
+embedded. A class with none therefore has no position, and the fall-backs differ only in where
+it is placed: at the extreme of the range, in a null cluster, or at an infinite threshold. In
+every case the class ends up sharing a threshold with others, and none of its own. Descriptors read from the classifier's weights have no such gap, which is the difference
+\cref{tab:competitors} measures.
 
-\paragraph{Adaptive conformal prediction and score design.} Normalised or locally adaptive
-conformal prediction predicts a per-instance notion of difficulty from the features and
-rescales the score by it \cite{lei2014distribution}, which is the per-instance counterpart of
-what we do per class. A parallel line designs the score function itself so as to trade set
-size against conditional coverage, including APS \cite{romano2020classification}, RAPS
-\cite{angelopoulos2021uncertainty} and SAPS \cite{huang2024conformal}; we report results for
-all three in \cref{tab:depth}. What is new in our setting is not the idea of modulating a
-conformal quantity by side information but the side information itself, which remains
-available for classes the calibration set never saw.
+\paragraph{Conformal score functions.} Normalised and locally adaptive conformal prediction
+estimate a per-instance difficulty from the features and rescale the score by it
+\cite{lei2014distribution}, the per-instance analogue of a per-class correction. A parallel
+line designs the score itself to trade set size against conditional coverage, including APS
+\cite{romano2020classification}, RAPS \cite{angelopoulos2021uncertainty} and SAPS
+\cite{huang2024conformal}, all of which appear in \cref{tab:depth}. Modulating a conformal
+quantity by side information is thus an established idea; what is unavailable in the
+zero-example regime is side information drawn from the calibration set.
 
 \paragraph{Prevalence as the source of the correction.} A second family leaves the per-class
 quantile alone and reshapes the score using class frequency. \citet{ding2026conformal} divide
@@ -79,22 +66,16 @@ the softmax probability by an estimate of the class prior, which is optimal for 
 among procedures of a given expected set size, and blend the classwise and marginal quantiles
 with a user-chosen weight. \citet{liu2026tail} add a rank-dependent penalty to the scores of
 head classes, with a smooth reweighting in their sTACP variant, and prove a smaller head-tail
-coverage gap. Both are defined for a class with no calibration examples, which makes them the
-closest competitors to ours that remain applicable in our regime, and both draw their per-class
-signal from a single scalar. Prevalence turns out to be the weakest of the descriptors we
-tried: it is significantly worse than geometry on its own (\cref{tab:ablation}) and is beaten
-by a random projection of the same dimension (\cref{tab:competitors}), which is the empirical
-reason we look at the classifier's geometry instead.
+coverage gap. Both remain defined for a class with no calibration examples, and both draw
+their per-class signal from a single scalar. That scalar is weak. Prevalence alone is significantly
+worse than geometry (\cref{tab:ablation}) and is beaten by a random projection of
+the same dimension (\cref{tab:competitors}).
 
-\paragraph{Group-conditional coverage.} A third family asks for coverage conditional on
-membership of a group instead of treating classes one at a time. \citet{bairaktari2025kandinsky} give the most
-general form of this, allowing overlapping and fractional group memberships defined jointly on
-covariates and labels, obtained from a single quantile regression over the span of the group
-functions. Our descriptors could serve as such group functions, which would replace our
-empirical claim for zero-example classes with a group-conditional guarantee, at the price of a
-guarantee about neighbourhoods in $\varphi$-space instead of about individual classes. We regard
-this as the most promising route to a formal statement in the $n_y=0$ regime and do not pursue
-it here.
+\paragraph{Group-conditional coverage.} A third family asks for coverage conditional on group
+membership instead of per class. \citet{bairaktari2025kandinsky} give the general form,
+allowing overlapping and fractional groups defined jointly on covariates and labels. Groups
+drawn in descriptor space would trade a per-class claim for a guarantee about neighbourhoods,
+which we return to in \cref{sec:discussion}.
 
 \paragraph{Conformal prediction under distribution shift.} Coverage can be restored under
 covariate shift by importance-weighting the calibration scores \cite{tibshirani2019conformal},

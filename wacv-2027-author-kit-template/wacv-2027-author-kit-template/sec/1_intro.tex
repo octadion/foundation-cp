@@ -1,39 +1,44 @@
 \section{Introduction}
 \label{sec:intro}
 
-Prediction sets are useful because they replace a single fallible prediction with a short list
-that is likely to contain the true label, which a human can then verify. Consider a botanist
-who photographs a specimen and receives a handful of candidate species: identifying the plant
-from that list is easy, whereas confirming or rejecting one unqualified guess is not.
-Conformal prediction turns any trained classifier into such a procedure, with a finite-sample
-coverage guarantee and no assumptions on the data distribution
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/fig_overview.pdf}
+\caption{(a) What existing methods can offer a class whose calibration set is empty, and what
+PCC offers instead. (b) The three steps: the offset is observed only where labels exist,
+regressed on descriptors read from the classifier's weights, then shrunk and recalibrated.
+Schematic; measured behaviours are in \cref{tab:competitors}.}
+\label{fig:overview}
+\end{figure}
+
+A prediction set replaces one fallible prediction with a short list that is likely to contain
+the true label. Conformal prediction turns any trained classifier into such a procedure, with
+a finite-sample coverage guarantee and no assumptions on the data distribution
 \cite{vovk2005algorithmic,angelopoulos2023gentle}.
 
 The guarantee that comes for free is marginal: averaged over all inputs, the set contains the
 true label with probability at least $1-\alpha$. Since marginal coverage is a prevalence-weighted
 average of the class-conditional coverages, it is dominated by the frequent classes, and a
-single shared threshold systematically under-covers the hard and rare ones. In biodiversity
-monitoring or disease diagnosis the rare classes are often the ones that matter most, so the
-species a botanist most needs to catch is the one whose prediction set most often omits it.
-Recovering per-class control requires calibrating a separate threshold for each class, which is
-what classwise conformal prediction \cite{vovk2005algorithmic,sadinle2019least} and its
-successors \cite{ding2023class,shi2024rank,ding2026conformal} do.
+single shared threshold systematically under-covers the hard and rare ones. In biodiversity monitoring
+and in diagnosis the rare classes are often the ones that matter most, so the label a user most
+needs to see is the one the set most often omits. Recovering per-class control requires
+calibrating a separate threshold for each class, which is what classwise conformal prediction
+\cite{vovk2005algorithmic,sadinle2019least} and its successors
+\cite{ding2023class,shi2024rank,ding2026conformal} do.
 
 Those methods all require labelled calibration examples of the class whose threshold they are
 setting. In long-tailed deployments most rare classes are consumed by model training, which,
 as \citet{ding2026conformal} note, leaves them with ``few or zero holdout examples to use for
 calibrating uncertainty quantification methods.'' The zero case is common: on Pl@ntNet-300K
 \cite{garcin2021plantnet} the median class has three held-out examples and on
-iNaturalist-2018 \cite{vanhorn2018inaturalist} it has two. We measured what existing methods
-emit for a class with no calibration examples, using the authors' released implementations,
-and summarise the behaviours in \cref{tab:methods}. \textsc{Classwise} CP and \textsc{Rc3p}
-return an infinite threshold, so the prediction set becomes the entire label space;
-\textsc{Clustered} CP assigns the class to a null cluster and falls back to one shared
-marginal threshold; and the kernel-weighted method of \citet{ding2026conformal}, which is the
-closest approach to ours in structure, embeds each class using its own calibration scores and
-therefore collapses every zero-example class onto one point of the embedding, handing them all
-the same threshold. None of these behaviours is unreasonable, because with no labelled example
-of a class there is nothing in the calibration set to condition on.
+iNaturalist-2018 \cite{vanhorn2018inaturalist} it has two. \Cref{fig:overview}(a) and \cref{tab:methods} summarise
+what existing methods do with such a class. \textsc{Classwise} CP and \textsc{Rc3p} return an
+infinite threshold, so the prediction set becomes the entire label space. \textsc{Clustered} CP
+places the class in a null cluster and falls back to the shared marginal threshold. The
+kernel-weighted method of \citet{ding2026conformal} embeds each class by its own calibration
+scores, so a class with none collapses to a single point of the embedding and every such class
+receives the same threshold. None of this is unreasonable, since with no labelled example of a
+class there is nothing in the calibration set to condition on.
 
 \paragraph{Objective.} Something about a class is nevertheless known without any of its
 labels. A trained classifier already places every class somewhere in its output geometry: the
@@ -44,7 +49,8 @@ with zero calibration examples, since they are determined by the model's paramet
 not involve any sample. Our goal is to use them to assign such a class a threshold that is specific to it,
 while keeping the marginal coverage guarantee that split conformal prediction provides.
 
-\paragraph{Our approach.} Predicted Class Correction (PCC) proceeds in three steps. On the
+\paragraph{Our approach.} Predicted Class Correction (PCC) proceeds in three steps
+(\cref{fig:overview}b). On the
 classes that do have calibration data we observe the offset $\delta_y$ between the per-class
 conformal quantile and the marginal one, and fit a ridge regression of $\delta_y$ on the
 descriptors $\varphi(y)$. We then apply the fitted regression to every class, including those
@@ -65,9 +71,7 @@ $90\%$ of classes, which leaves $100$ labelled classes out of $1000$, still yiel
 with a confidence interval excluding zero, and the structural floor is $p+2$ labelled classes
 for $p$ descriptors (\cref{fig:heldout}). (iii) Below roughly $35$ evaluation examples per
 class, an oracle that observes the test labels cannot improve worst-class coverage either, so
-what disappears in that regime is the room to improve and not the ability to take it
+what disappears there is the room to improve and not the ability to take it
 (\cref{fig:evaldepth}). This one axis accounts for all four settings in which the method
-initially appeared to fail, and restricting evaluation to classes above the threshold recovers
-a significant improvement on Pl@ntNet-300K. We arrived at it after discarding two explanations
-of our own, both of which \cref{sec:discussion} records together with the measurements that
-ruled them out.
+initially appeared to fail, and restricting evaluation above the threshold recovers a
+significant improvement on Pl@ntNet-300K.

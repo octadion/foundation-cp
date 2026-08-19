@@ -64,27 +64,27 @@ coverage, and below it a prevalence-binned surrogate, with the threshold fixed b
 \toprule
 Metric & Definition \\
 \midrule
-$\hat c_y$ (class coverage)
+$\hat c_y$
   & $\frac{1}{|J_y|}\sum_{i\in J_y}\mathbf{1}\{Y_i\in\mathcal{C}(X_i)\}$ \\[2pt]
-Worst-class (regime A)
+Worst-class (A)
   & $\min_{y}\hat c_y$ \\[2pt]
-Bin-worst (regime B)
-  & $\min_{b}\hat c^{(b)}$, prevalence bins $b$ \\[2pt]
-$\Delta$ worst-class
-  & worst-class, method $-$ marginal, matched size \\[2pt]
+Bin-worst (B)
+  & $\min_{b}\hat c^{(b)}$, prevalence bins \\[2pt]
+$\Delta$ worst
+  & worst-class minus marginal \\[2pt]
 Below target
   & $\frac{1}{|\mathcal{Y}|}\sum_y\mathbf{1}\{\hat c_y<1-\alpha\}$ \\[2pt]
 SSCV
-  & $\max_{b}\bigl|\hat c^{(b)}-(1-\alpha)\bigr|$, set-size strata \\[2pt]
+  & $\max_{b}|\hat c^{(b)}-(1-\alpha)|$, strata \\[2pt]
 Worst-slab
-  & $\min$ mean $\hat c_y$ over prevalence windows \\[2pt]
-Average set size
+  & $\min$ mean $\hat c_y$ over windows \\[2pt]
+Set size
   & $\frac{1}{N}\sum_i|\mathcal{C}(X_i)|$ \\[2pt]
-Empty-set rate
+Empty rate
   & $\frac{1}{N}\sum_i\mathbf{1}\{|\mathcal{C}(X_i)|=0\}$ \\
 \bottomrule
 \end{tabular}
-\caption{Evaluation metrics. $J_y$ is the set of test indices with label $y$ and $N$ the
+\caption{Evaluation metrics. $\hat c_y$ is the empirical coverage of class $y$, and regimes A and B are the per-class and prevalence-binned cases. $J_y$ is the set of test indices with label $y$ and $N$ the
 number of test points. Bins and strata are pooled groups, used where a per-class estimate is
 too noisy to report: prevalence bins require $200$ test rows each and set-size strata $30$.
 The empty-set rate is included because an average set size below one is only possible when a
@@ -232,16 +232,16 @@ needs an evaluation set larger than the validation split.
 \centering
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{llccc}
+\begin{tabular}{@{}llc@{}}
 \toprule
-Backbone & $\varphi$ head & $\Delta$ worst & 95\% CI & Eval/class \\
+Backbone & $\varphi$ & $\Delta$ worst-class \\
 \midrule
-ConvNeXt-T \cite{liu2022convnet} & own & $+0.0000$ & $[+0.000,+0.000]$ & $35$ \\
-ConvNeXt-T \cite{liu2022convnet} & fixed & $+0.0114$ & $[-0.017,+0.040]$ & $35$ \\
-ResNet-50 \cite{he2016deep} & own & $+0.0171$ & $[-0.005,+0.040]$ & $35$ \\
-ResNet-50 \cite{he2016deep} & fixed & $+0.0057$ & $[-0.005,+0.017]$ & $35$ \\
-ViT-B/16 \cite{dosovitskiy2021image} & own & $-0.0286$ & $[-0.072,+0.015]$ & $35$ \\
-ViT-B/16 \cite{dosovitskiy2021image} & fixed & $-0.0114$ & $[-0.066,+0.043]$ & $35$ \\
+ConvNeXt-T \cite{liu2022convnet}     & own   & $+0.000\ [-0.000,+0.000]$ \\
+                                     & fixed & $+0.011\ [-0.017,+0.040]$ \\
+ResNet-50 \cite{he2016deep}          & own   & $+0.017\ [-0.005,+0.040]$ \\
+                                     & fixed & $+0.006\ [-0.005,+0.017]$ \\
+ViT-B/16 \cite{dosovitskiy2021image} & own   & $-0.029\ [-0.072,+0.015]$ \\
+                                     & fixed & $-0.011\ [-0.066,+0.043]$ \\
 \bottomrule
 \end{tabular}
 \caption{Both descriptor arms on three backbones, five splits. ``own'' uses each model's own
@@ -258,14 +258,14 @@ the weight extraction.}
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{llccc}
+\begin{tabular}{@{}llcc@{}}
 \toprule
-Dataset & Thr. & Classes kept & $\Delta$ worst-class & $\lambda$ \\
+Dataset & Thr. & Kept & $\Delta$ worst-class \\
 \midrule
-Pl@ntNet & $\ge 35$ & $151/1081$ & $+0.020\ [-0.011,+0.052]$ & $0.22$ \\
-Pl@ntNet & $\ge 75$ & $\ \ 98/1081$ & $\mathbf{+0.019}\ [+0.010,+0.028]$ & $0.22$ \\
-iNat-2018 & $\ge 35$ & $237/8142$ & $+0.000$ & $0.00$ \\
-iNat-2018 & $\ge 75$ & $\ \ 75/8142$ & $+0.000$ & $0.00$ \\
+Pl@ntNet  & $\ge 35$ & $151$ & $+0.020\ [-0.011,+0.052]$ \\
+Pl@ntNet  & $\ge 75$ & $98$  & $\mathbf{+0.019}\ [+0.010,+0.028]$ \\
+iNat-2018 & $\ge 35$ & $237$ & $+0.000$ \\
+iNat-2018 & $\ge 75$ & $75$  & $+0.000$ \\
 \bottomrule
 \end{tabular}
 \caption{Restricting evaluation to classes whose slice can support a per-class estimate. Five
@@ -295,11 +295,11 @@ richer descriptors recover the signal and state that as the open question.
 \centering
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcccccc}
+\begin{tabular}{@{}lccccc@{}}
 \toprule
-$\lambda$ & $0$ & $0.1$ & $0.2$ & $0.3$ & $0.5$ & $1.0$ \\
+$\lambda$ & $0$ & $0.1$ & $0.3$ & $0.5$ & $1.0$ \\
 \midrule
-worst-class & $\mathbf{0.699}$ & $0.466$ & $0.408$ & $0.385$ & $0.350$ & $0.319$ \\
+worst & $\mathbf{0.699}$ & $0.466$ & $0.385$ & $0.350$ & $0.319$ \\
 \bottomrule
 \end{tabular}
 \caption{Shrinkage curve on the labelled classes of iNaturalist-2018, mean over five splits, at
@@ -330,7 +330,7 @@ we added this column.
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{llcccc}
 \toprule
-Corruption & Sev. & $\Delta$ worst & Coverage & Set size & Empty \\
+Corruption & Sev. & $\Delta$ & Cov. & Size & Empty \\
 \midrule
 brightness & 3 & $+0.0200$ & $0.841$ & $1.345$ & $0.063$ \\
 brightness & 5 & $+0.0067$ & $0.746$ & $1.362$ & $0.103$ \\
@@ -396,18 +396,18 @@ where prevalence does vary over three orders of magnitude.
 \centering
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{lccc}
+\begin{tabular}{@{}lccc@{}}
 \toprule
-Prevalence quintile & Classes & Median prev. & Mean $\Delta\hat c_y$ \\
+Quintile & Classes & Med.\ prev. & Mean $\Delta\hat c_y$ \\
 \midrule
-1 (most frequent) & $60$ & $1147$ & $-0.0005$ \\
-2                 & $60$ & $1163$ & $-0.0033$ \\
-3                 & $60$ & $1169$ & $-0.0033$ \\
-4                 & $60$ & $1174$ & $+0.0007$ \\
-5 (least frequent)& $60$ & $1182$ & $-0.0020$ \\
+1, frequent & $60$ & $1147$ & $-0.0005$ \\
+2           & $60$ & $1163$ & $-0.0033$ \\
+3           & $60$ & $1169$ & $-0.0033$ \\
+4           & $60$ & $1174$ & $+0.0007$ \\
+5, rare     & $60$ & $1182$ & $-0.0020$ \\
 \midrule
-\multicolumn{4}{l}{Classes improved $12.3\%$, worsened $26.7\%$} \\
-\multicolumn{4}{l}{Worst class $0.569 \rightarrow 0.647$, same class before and after} \\
+\multicolumn{4}{@{}l@{}}{Improved $12.3\%$, worsened $26.7\%$} \\
+\multicolumn{4}{@{}l@{}}{Worst class $0.569 \rightarrow 0.647$, same class} \\
 \bottomrule
 \end{tabular}
 \caption{Change in per-class coverage on the $300$ held-out ImageNet classes, by prevalence
@@ -472,6 +472,31 @@ provide that: $g_\theta$, $\lambda$, $n_{\mathrm{cal}}$ and $c$ all read the sam
 rows. We measured the cost of the reuse in \cref{app:invisible}, where \textsc{Pcc} lands
 $0.0024$ of marginal coverage below the marginal threshold on the same rows.
 
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Quantity & Rows & Classes \\
+\midrule
+$\hat q$ \eqref{eq:qglobal}      & calib. & labelled \\
+$\delta_y$ \eqref{eq:delta}      & calib. & labelled, $n_y\ge n_{\mathrm{cal}}$ \\
+$g_\theta$                       & calib. & labelled, $n_y\ge n_{\mathrm{cal}}$ \\
+$\lambda$ \eqref{eq:shrink}      & calib. & labelled \\
+$n_{\mathrm{cal}}$               & calib. & labelled \\
+$c$ \eqref{eq:set}               & calib. & labelled \\
+\midrule
+\emph{all reported numbers}      & \emph{eval.} & \emph{both tables} \\
+\bottomrule
+\end{tabular}
+\caption{What each estimated quantity may see. Evaluation rows and held-out classes are used
+only for reporting. The default configuration lets $g_\theta$, $\lambda$ and $c$ share the same
+calibration rows, which is convenient but not what \cref{prop:marginal} assumes; \textsc{Pcc}-split
+divides those rows in two and is the variant the proposition covers.}
+\label{tab:splits}
+\end{table}
+
 \textsc{Pcc}-split is the variant the proposition covers. The calibration rows of each labelled
 class are divided by a per-class random split; the first part estimates $\delta_y$, fits
 $g_\theta$ and selects $\lambda$ and $n_{\mathrm{cal}}$, and the second part is used for nothing
@@ -512,15 +537,15 @@ would not change any conclusion in this paper.
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}lcccc@{}}
+\begin{tabular}{@{}lccc@{}}
 \toprule
-Variant & Recal.\ rows & Marg.\ cov. & Deficit & $\Delta$ worst-class \\
+Variant & Marg.\ cov. & Deficit & $\Delta$ worst \\
 \midrule
-Reuse            & $0$      & $0.8994$ & $-0.0018$ & $+0.0588$ \\
-Split, $25\%$    & $30{,}5$k & $\mathbf{0.9011}$ & $\mathbf{-0.0000}$ & $+0.0636$ \\
-Split, $50\%$    & $61{,}1$k & $0.9003$ & $-0.0007$ & $+0.0585$ \\
+Reuse         & $0.8994$ & $-0.0018$ & $+0.0588$ \\
+Split $25\%$  & $\mathbf{0.9011}$ & $\mathbf{-0.0000}$ & $+0.0636$ \\
+Split $50\%$  & $0.9003$ & $-0.0007$ & $+0.0585$ \\
 \midrule
-Target           & ---      & $0.9000$ & ---       & --- \\
+Target        & $0.9000$ & ---       & --- \\
 \bottomrule
 \end{tabular}
 \caption{\textsc{Pcc}-split against reuse, ten paired splits on ImageNet at $\alpha=0.10$.
@@ -580,13 +605,13 @@ same effect \cref{fig:evaldepth} measures from the other direction.
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}rccll@{}}
+\begin{tabular}{@{}rcclc@{}}
 \toprule
-Rows & Cal./class & Eval./class & $\Delta$ worst-class & Ceiling \\
+Rows & Cal. & Eval. & $\Delta$ worst-class & Ceil. \\
 \midrule
-$250$k & $177$ & $\ 76$ & $+0.058\ [+0.006,+0.110]$ & $+0.140$ \\
-$500$k & $354$ & $152$ & $+0.050\ [+0.011,+0.089]$ & $+0.105$ \\
-$750$k & $532$ & $228$ & $+0.076\ [+0.034,+0.118]$ & $+0.116$ \\
+$250$k & $177$ & $\ 76$ & $+0.058\ [+0.006,+0.110]$ & $0.140$ \\
+$500$k & $354$ & $152$ & $+0.050\ [+0.011,+0.089]$ & $0.105$ \\
+$750$k & $532$ & $228$ & $+0.076\ [+0.034,+0.118]$ & $0.116$ \\
 \bottomrule
 \end{tabular}
 \caption{The row budget swept over a factor of three, five splits each, everything else at the
@@ -633,15 +658,15 @@ these two choices, not that they have no effect on $g_\theta$.
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}lll@{}}
+\begin{tabular}{@{}llc@{}}
 \toprule
-Descriptor set & $\Delta$ worst-class & CV error \\
+Descriptors & $\Delta$ worst-class & CV err. \\
 \midrule
-Cosine, all features   & $+0.058\ [+0.006,+0.110]$ & $0.036$ \\
-Euclidean distances    & $+0.045\ [+0.009,+0.081]$ & $0.040$ \\
-Without the head bias  & $+0.058\ [+0.006,+0.110]$ & $0.036$ \\
-Neighbours $k\in\{1,2,5\}$        & $+0.058\ [+0.006,+0.110]$ & $0.036$ \\
-Neighbours $k\in\{1,10,20,100\}$  & $+0.063\ [+0.016,+0.111]$ & $0.036$ \\
+Cosine, all       & $+0.058\ [+0.006,+0.110]$ & $0.036$ \\
+Euclidean         & $+0.045\ [+0.009,+0.081]$ & $0.040$ \\
+No head bias      & $+0.058\ [+0.006,+0.110]$ & $0.036$ \\
+$k\in\{1,2,5\}$   & $+0.058\ [+0.006,+0.110]$ & $0.036$ \\
+$k\in\{1,10,20,100\}$ & $+0.063\ [+0.016,+0.111]$ & $0.036$ \\
 \bottomrule
 \end{tabular}
 \caption{Descriptor choices, five splits each on held-out ImageNet classes. ``CV error'' is the
