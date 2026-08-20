@@ -335,3 +335,26 @@ def test_dump_fit_is_off_by_default(world):
     """A run that does not ask for it must not write files beside the report."""
     res = drv.run(_args(world))
     assert res is not None
+
+
+def test_dump_fit_carries_per_class_coverage_for_the_appendix_curve(world, tmp_path):
+    """The sorted per-class coverage curve needs every class's coverage under each arm, and
+    it must come from the same matched-size shift the tables report."""
+    import numpy as _np
+    out = tmp_path / "fit2.npz"
+    res = drv.run(_args(world, dump_fit=str(out)))
+    z = _np.load(str(out), allow_pickle=True)
+
+    for space, n in (("seen", res["n_seen"]), ("heldout", res["n_heldout"])):
+        for arm in ("uncorrected", "pcc", "oracle"):
+            k = "cov_%s_%s" % (space, arm)
+            assert k in z.files, "%s missing from the dump" % k
+            assert z[k].shape == (n,), "%s has shape %s, expected (%d,)" % (k, z[k].shape, n)
+            finite = z[k][_np.isfinite(z[k])]
+            assert ((finite >= 0) & (finite <= 1)).all(), "%s is not a coverage" % k
+
+    # the arms must actually differ, else the curve would show nothing
+    assert not _np.allclose(z["cov_heldout_uncorrected"], z["cov_heldout_pcc"],
+                            equal_nan=True)
+    # and the thresholds the run emitted travel with it
+    assert z["thresholds"].shape == (world["K"],)

@@ -130,6 +130,11 @@ def _three_way_split(y, K, frac_desc, frac_cal, seed):
 # ----------------------------------------------- measurability (pre-registered)
 # reports/prereg_metrics_per_dataset.md, written before any Phase 2 run. Thresholds are
 # choices, fixed here so they cannot be moved once results are visible.
+# Entries of the metric dict that are not numbers, so a delta between two arms
+# cannot be taken over them. Kept in one place: adding per_class_coverage in four
+# separate spots is exactly how this broke once.
+NOT_DIFFABLE = ("shift", "size_strata", "per_class_coverage")
+
 PER_CLASS_MIN_EVAL = 30      # below this median, a per-class coverage estimate is noise
 BIN_MIN_EVAL_ROWS = 200      # pooled evaluation rows required per prevalence bin
 PER_CLASS_STATS = ("worst", "max_gap", "p05", "p10")
@@ -268,6 +273,9 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
                  for i in range(0, K_sub - w + 1, max(1, w // 2))]
         slabs = [v for v in slabs if np.isfinite(v)]
         e["worst_slab"] = float(min(slabs)) if slabs else float("nan")
+        # kept so --dump-fit can draw the sorted per-class curve; it is a K-vector and is
+        # stripped from the JSON report by write_report's size guard if one applies
+        e["per_class_coverage"] = [None if not np.isfinite(v) else float(v) for v in cov]
         return e
 
     # G4: WHICH classes the correction helps, not just by how much.
@@ -375,13 +383,13 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
         "measurability": meas,
         "uncorrected": e_base, "pcc": e_pcc, "oracle": e_or,
         "delta": {k: e_pcc[k] - e_base[k] for k in e_base
-                  if k not in ("shift", "size_strata")},
+                  if k not in NOT_DIFFABLE},
         "delta_oracle": {k: e_or[k] - e_base[k] for k in e_base
-                         if k not in ("shift", "size_strata")},
+                         if k not in NOT_DIFFABLE},
         # the unshrunk oracle: perfect delta at lambda=1, i.e. the lam1 ablation with a
         # perfect predictor. Reported so "why shrink?" is answered by a number.
         "delta_oracle_unshrunk": {k: e_unsh[k] - e_base[k] for k in e_base
-                                  if k not in ("shift", "size_strata")},
+                                  if k not in NOT_DIFFABLE},
         "size_matched": bool(abs(e_pcc["avg_set_size"] - e_base["avg_set_size"]) < 1e-2),
         "raw_unmatched": {"uncorrected": raw_base, "pcc": raw_pcc,
                           "delta": {k: raw_pcc[k] - raw_base[k] for k in raw_base}},
@@ -459,7 +467,7 @@ def _one_table(S_ev, y_ev, classes, q_global, thresholds_full, stat, counts=None
             out["competitors"][nm] = e_c
             out["delta_competitors"][nm] = {
                 k: e_c[k] - e_base[k] for k in e_base
-                if k not in ("shift", "size_strata") and k in e_c}
+                if k not in NOT_DIFFABLE and k in e_c}
             out["competitors"][nm]["n_candidates"] = len(cands)
     out["pass"] = (bool(out["delta"][primary] > 0) if primary in out["delta"] else None)
     return out
@@ -893,31 +901,6 @@ def run(args) -> dict:
                     seed=args.seed)
     t = model.thresholds()
 
-    # --dump-fit: the arrays behind the method figure, saved from THIS run so the figure and
-    # the tables cannot disagree about the split, the seed or the fit.
-    dump_fit = getattr(args, "dump_fit", None)
-    if dump_fit:
-        d_hat_all = model.gtheta.predict(np.asarray(Phi, float))
-        np.savez_compressed(
-            dump_fit,
-            delta_obs=np.asarray(delta_obs, float),
-            delta_hat=np.asarray(d_hat_all, float),
-            Phi=np.asarray(Phi, float),
-            # NOT dtype=object: that pickles, and a dump written under numpy 2
-            # then fails to load under numpy 1 with 'No module named numpy._core'
-            feature_names=np.array([str(n) for n in names]),
-            seen=np.asarray(seen, int),
-            heldout=np.asarray(heldout, int),
-            n_per_class=np.asarray(n_per_class, int),
-            class_counts=np.asarray(cnt_full, float),
-            q_global=float(q_global),
-            lam=float(model.lam),
-            offset=float(model.offset),
-            n_cal=int(args.n_cal),
-            alpha=float(args.alpha),
-        )
-        print("  dump-fit -> {} ({} kelas, {} fitur)".format(
-            dump_fit, len(delta_obs), len(names)), flush=True)
 
     # RESTRICT TO CLASSES WHERE THE METRIC IS MEASURABLE AT ALL.
     #
@@ -1013,6 +996,45 @@ def run(args) -> dict:
         res["table_2_heldout"] = _one_table(S_ev, y_ev, heldout, q_global, t, args.stat,
                                             counts=cnt_full, alpha=args.alpha,
                                             competitors=comps)
+
+    # --dump-fit: the arrays behind the method and appendix figures, saved from THIS run so
+    # the figures and the tables cannot disagree about the split, the seed or the fit. Placed
+    # after the tables because the matched-size shift is only known once they are built, and
+    # recomputing it here could differ from the shift the tables report.
+    dump_fit = getattr(args, "dump_fit", None)
+    if dump_fit:
+        d_hat_all = model.gtheta.predict(np.asarray(Phi, float))
+        extra = {}
+        for key, tbl in (("seen", res.get("table_1_seen")),
+                         ("heldout", res.get("table_2_heldout"))):
+            if not tbl:
+                continue
+            for arm in ("uncorrected", "pcc", "oracle"):
+                cov = (tbl.get(arm) or {}).get("per_class_coverage")
+                if cov is not None:
+                    extra["cov_{}_{}".format(key, arm)] = np.asarray(cov, float)
+        np.savez_compressed(
+            dump_fit,
+            delta_obs=np.asarray(delta_obs, float),
+            delta_hat=np.asarray(d_hat_all, float),
+            Phi=np.asarray(Phi, float),
+            # NOT dtype=object: that pickles, and a dump written under numpy 2
+            # then fails to load under numpy 1 with 'No module named numpy._core'
+            feature_names=np.array([str(n) for n in names]),
+            seen=np.asarray(seen, int),
+            heldout=np.asarray(heldout, int),
+            n_per_class=np.asarray(n_per_class, int),
+            class_counts=np.asarray(cnt_full, float),
+            thresholds=np.asarray(t, float),
+            q_global=float(q_global),
+            lam=float(model.lam),
+            offset=float(model.offset),
+            n_cal=int(args.n_cal),
+            alpha=float(args.alpha),
+            **extra)
+        print("  dump-fit -> {} ({} kelas, {} fitur, {} larik coverage)".format(
+            dump_fit, len(delta_obs), len(names), len(extra)), flush=True)
+
 
     return res
 
