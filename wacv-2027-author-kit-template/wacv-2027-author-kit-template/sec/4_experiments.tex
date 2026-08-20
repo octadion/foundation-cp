@@ -103,13 +103,16 @@ in set size. \Cref{app:invisible} gives that view in full.
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\linewidth]{figures/fig_sweeps.pdf}
-\caption{(a) Capping evaluation examples per class inside one dataset, everything else fixed.
-Below roughly $35$ per class the oracle ceiling itself falls to zero, so no method, including
-one that observes the test labels, can be shown to improve worst-class coverage; the settings
-where PCC appeared to fail sit at $35$ (additional backbones), $3$ (Pl@ntNet-300K) and $2$
-(iNaturalist-2018). (b) Sweeping how many classes have no calibration data at all; the
-$x$-values correspond to $900$, $700$, $500$, $300$ and $100$ labelled classes out of $1000$.
-Bars are $95\%$ confidence intervals over five splits.}
+\caption{(a) Evaluation examples available per class, sorted, for the three datasets. The
+dashed line is the $30$-example threshold below which a per-class coverage estimate is withheld
+(\cref{tab:metrics}); $83\%$ of Pl@ntNet-300K classes and $97\%$ of iNaturalist-2018 classes
+fall below it, against none of ImageNet's. (b) Capping evaluation examples per class inside one
+dataset with everything else fixed: below roughly $35$ the oracle ceiling itself falls to zero,
+so no method, including one that observes the test labels, can be shown to improve worst-class
+coverage. The settings where PCC appeared to fail sit at $35$ (additional backbones), $3$
+(Pl@ntNet-300K) and $2$ (iNaturalist-2018). (c) Sweeping how many classes have no calibration
+data at all; the $x$-values correspond to $900$, $700$, $500$, $300$ and $100$ labelled classes
+out of $1000$. Bars are $95\%$ confidence intervals over five splits.}
 \label{fig:sweeps}
 \end{figure*}
 
@@ -125,7 +128,11 @@ settings that fail. Descriptors endogenous to the scoring model are not the caus
 replacing each backbone's own head with a fixed exogenous one leaves every interval containing
 zero (\cref{app:backbones}).
 
-\Cref{fig:sweeps}a caps the number of \emph{evaluation} examples per class instead. The
+How much evaluation data each dataset actually has is \cref{fig:sweeps}a. On ImageNet every
+class carries about $1168$ examples; on Pl@ntNet-300K the median class has three and on
+iNaturalist-2018 two, so $83\%$ and $97\%$ of their classes respectively fall below the
+threshold at which we report a per-class estimate at all. \Cref{fig:sweeps}b caps the number of
+\emph{evaluation} examples per class inside ImageNet instead. The
 effect is monotone and its interval crosses zero between $35$ and $75$. More importantly the
 oracle ceiling collapses on the same axis, reaching zero by three examples per class, where
 even a method holding the test labels could not improve worst-class coverage. What disappears
@@ -138,10 +145,9 @@ That explanation is falsifiable, and restricting evaluation to classes above the
 confirms it on Pl@ntNet-300K. Of its $1081$ classes, $98$ have at least $75$ evaluation
 examples and $34$ of those are held out; over that label space the improvement is $0.019$
 $[0.010,0.028]$, five splits of five. At the weaker threshold of $35$ it does not reach
-significance, $0.020$ $[-0.011,0.052]$, which is what \cref{fig:sweeps}a predicts at the
-edge of measurability. The apparent failure was an artefact of what the test set can measure,
-and the price of removing it is that the claim covers under a tenth of the label space
-(\cref{tab:longtail}).
+significance, $0.020$ $[-0.011,0.052]$, which is what \cref{fig:sweeps}b predicts at the edge
+of measurability. The apparent failure was an artefact of measurement, and the price of
+removing it is that the claim covers under a tenth of the label space (\cref{tab:longtail}).
 
 iNaturalist-2018 stays at zero even after restriction, and there the cause is different.
 $\lambda$ is selected as $0$ in every split, so the method returns the marginal threshold
@@ -169,18 +175,16 @@ over $p$ features and needs at least $p+2$ labelled classes, eleven here.
 \label{sec:scores}
 
 The correction survives every score but is strongest with LAC and attenuates for the adaptive
-ones (\cref{tab:depth}). A plausible mechanism is that APS, RAPS and SAPS already reshape the
-score using rank or cumulative mass, absorbing part of the class-difficulty signal that
-$\delta_y$ captures. At $\alpha=0.01$ the effect is exactly zero, consistent with the
-per-class offsets becoming indistinguishable from noise in the extreme tail.
+ones (\cref{tab:depth}), plausibly because APS, RAPS and SAPS already reshape the score using
+rank or cumulative mass, absorbing part of the class-difficulty signal $\delta_y$ captures. At
+$\alpha=0.01$ the effect is exactly zero, consistent with the offsets becoming
+indistinguishable from noise in the extreme tail.
 
-PAS \cite{ding2026conformal} is included because it is the other published construction that
-stays defined for a class with no calibration examples, and because a reader may ask whether
-it removes the need for a per-class correction. It does not, though the reading is not a clean
-win either: on PAS scores our improvement is $0.066$ with an interval containing zero, and the
-ceiling rises to $0.234$, so PAS opens more room than LAC and we take a smaller share of it,
-$28\%$ against $42\%$. Both fit prevalence carrying real but coarse information about class
-difficulty, which \cref{tab:ablation} finds from the descriptor side.
+PAS \cite{ding2026conformal} appears because it is the other published construction that stays
+defined at $n_y=0$. It does not remove the need for a per-class correction, though the reading
+is not a clean win either: our improvement on PAS scores is $0.066$ with an interval containing
+zero, while the ceiling rises to $0.234$, so PAS opens more room than LAC and we take a smaller
+share of it.
 
 \begin{table}[t]
 \centering
@@ -225,6 +229,6 @@ test points receive an empty set. Pooled over the $90$ conditions PCC gives $0.0
 $[0.001,0.005]$, an order of magnitude below the clean setting. We make no coverage claim here
 (\cref{app:imagenetc}).
 
-\paragraph{Computational cost.} PCC trains nothing. It is a closed-form ridge fit over at most
-$K$ points with $p=9$ features, on descriptors read from the classifier's weights, so no
-images, gradients or GPU are involved (\cref{app:runtime}).
+\paragraph{Computational cost.} PCC trains nothing: a closed-form ridge fit over at most $K$
+points with $p=9$ features, on descriptors read from the weights, so no images, gradients or
+GPU are involved (\cref{app:runtime}).

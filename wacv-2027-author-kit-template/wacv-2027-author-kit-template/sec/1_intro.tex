@@ -19,9 +19,9 @@ calibrating a separate threshold for each class, which is what classwise conform
 Those methods all require labelled calibration examples of the class whose threshold they are
 setting. In long-tailed deployments most rare classes are consumed by model training, which,
 as \citet{ding2026conformal} note, leaves them with ``few or zero holdout examples to use for
-calibrating uncertainty quantification methods.'' The zero case is common: on Pl@ntNet-300K
-\cite{garcin2021plantnet} the median class has three held-out examples and on
-iNaturalist-2018 \cite{vanhorn2018inaturalist} it has two. What existing methods do with such a class is
+calibrating uncertainty quantification methods.'' The zero case is common: the median class has three
+held-out examples on Pl@ntNet-300K \cite{garcin2021plantnet} and two on iNaturalist-2018
+\cite{vanhorn2018inaturalist}. What existing methods do with such a class is
 summarised in \cref{tab:methods}. \textsc{Classwise} CP and \textsc{Rc3p} return an infinite
 threshold, so the set becomes the entire label space; \textsc{Clustered} CP falls back to the
 shared marginal threshold; and the kernel-weighted method of \citet{ding2026conformal} embeds

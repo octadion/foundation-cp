@@ -23,13 +23,13 @@ the interval of any single setting, so the headline is not an artefact of it, bu
 say what happens on the full dump.
 
 \paragraph{Evaluating class-conditional coverage.} The observation we expect to outlast this
-method is that worst-class coverage becomes unmeasurable before it becomes unachievable.
-Below roughly $35$ evaluation examples per class the oracle ceiling is zero, so a null result
-on such a slice says little about the method that produced it. Long-tailed benchmarks sit in
-that regime, which means published comparisons on them may report a property of the evaluation
-set where they intend a difference between methods. We state the measurability regime beside
-every number, and three of our own explanations were discarded before we understood this
-(\cref{sec:depth}).
+method is that worst-class coverage becomes unmeasurable before it becomes unachievable. Below
+roughly $35$ evaluation examples per class the oracle ceiling is zero, so a null result on such
+a slice says little about the method that produced it, and \cref{fig:sweeps}a shows how much of
+each long-tailed benchmark sits there. Published comparisons on them may report a property of
+the evaluation set where they intend a difference between methods. We state the measurability
+regime beside every number, and three of our own explanations were discarded before we
+understood this (\cref{sec:depth}).
 
 \paragraph{Future work.} The most direct next step is a larger evaluation set for the rare
 classes themselves, since the restriction in \cref{tab:longtail} keeps under a tenth of the
