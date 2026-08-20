@@ -21,13 +21,13 @@ setting. In long-tailed deployments most rare classes are consumed by model trai
 as \citet{ding2026conformal} note, leaves them with ``few or zero holdout examples to use for
 calibrating uncertainty quantification methods.'' The zero case is common: on Pl@ntNet-300K
 \cite{garcin2021plantnet} the median class has three held-out examples and on
-iNaturalist-2018 \cite{vanhorn2018inaturalist} it has two. \Cref{tab:methods} summarises what existing methods do with such a class. \textsc{Classwise} CP and \textsc{Rc3p} return an
-infinite threshold, so the prediction set becomes the entire label space. \textsc{Clustered} CP
-places the class in a null cluster and falls back to the shared marginal threshold. The
-kernel-weighted method of \citet{ding2026conformal} embeds each class by its own calibration
-scores, so a class with none collapses to a single point of the embedding and every such class
-receives the same threshold. None of this is unreasonable, since with no labelled example of a
-class there is nothing in the calibration set to condition on.
+iNaturalist-2018 \cite{vanhorn2018inaturalist} it has two. What existing methods do with such a class is
+summarised in \cref{tab:methods}. \textsc{Classwise} CP and \textsc{Rc3p} return an infinite
+threshold, so the set becomes the entire label space; \textsc{Clustered} CP falls back to the
+shared marginal threshold; and the kernel-weighted method of \citet{ding2026conformal} embeds
+each class by its own calibration scores, so classes with none collapse to a single point and
+share one threshold. None of this is unreasonable, since with no labelled example of a class
+there is nothing to condition on.
 
 \paragraph{Objective.} Something about a class is nevertheless known without any of its
 labels. A trained classifier already places every class somewhere in its output geometry: the

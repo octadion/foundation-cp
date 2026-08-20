@@ -47,6 +47,46 @@ also load-bearing: an earlier version of our code selected $\lambda$ over all cl
 the held-out ones, which does not merely bias an estimate but removes the premise, and it moved
 the reported effect from $0.3$ to $0.5$ on the diagnostic we caught it with.
 
+\section{What each method gives a class with no data}
+\label{app:methods}
+
+\Cref{tab:methods} lists the per-class threshold rules compared in this paper and what each
+one produces when $n_y=0$. Three of them stay defined there without per-class labels, and
+\cref{sec:comp} reports what that is worth.
+
+% ---------------------------------------------------------------- method summary
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Method & $q_y$ built from & If $n_y=0$ \\
+\midrule
+\textsc{Standard} \cite{vovk2005algorithmic}  & shared quantile   & shared \\
+\textsc{Classwise} \cite{sadinle2019least}    & own quantile      & $\infty$ \\
+\textsc{Clustered} \cite{ding2023class}       & cluster quantile  & shared \\
+\textsc{Rc3p} \cite{shi2024rank}              & quantile + rank   & $\infty$ \\
+\textsc{Fuzzy} \cite{ding2026conformal}       & kernel weights    & shared \\
+\textsc{Pas} \cite{ding2026conformal}         & shared quantile   & shared \\
+\textsc{Interp-Q} \cite{ding2026conformal}    & blend of the two  & capped \\
+\textsc{Tacp} \cite{liu2026tail}              & head penalty      & by group \\
+\midrule
+\textbf{PCC} (ours) & $g_\theta(\varphi(y))$ & \textbf{predicted} \\
+\bottomrule
+\end{tabular}
+\caption{Methods that give a class its own conformal threshold. All of them target at least
+marginal coverage; the columns that separate them are what happens to a class with no labelled
+calibration examples, and how specific to that class the threshold it receives can be. Three
+methods do produce a defined threshold there without per-class labels: \textsc{Pas} reshapes the
+score using prevalence, \textsc{Interp-Q} caps the undefined classwise quantile at one before
+blending, and \textsc{Tacp} penalises the score of head classes, which gives one degree of
+freedom per prevalence group instead of one per class. Behaviours were obtained by running the
+authors' released implementations on the same held-out classes, except for \textsc{Tacp}, whose
+authors release no code; \cref{tab:competitors} reports the coverage that results.}
+\label{tab:methods}
+\end{table}
+
 \section{Evaluation metrics}
 \label{app:metrics}
 
@@ -167,6 +207,38 @@ that can sit $0.65$ below the baseline it is meant to bound is not a ceiling; th
 version cannot be exceeded by PCC by construction, since PCC optimises the same $\lambda$
 over a worse $\delta$.}
 \label{tab:oracle}
+\end{table}
+
+\section{Ablations}
+\label{app:ablation}
+
+\Cref{tab:ablation} is the evidence for \cref{sec:ablations}. Each row removes one component
+over ten ImageNet splits at $\alpha=0.10$, and a positive value means the full method is
+better than the ablated one.
+
+% ---------------------------------------------------------------- ablations
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+Ablation & $\Delta$ vs.\ full & $d_z$ & Holm \\
+\midrule
+$\lambda=0$ (no correction)      & $+0.032$ & $1.30$ & \checkmark \\
+$\lambda=1$ (unshrunk)           & $+0.584$ & $3.99$ & \checkmark \\
+distance descriptors only        & $+0.039$ & $1.49$ & \checkmark \\
+prevalence descriptor only       & $+0.032$ & $1.30$ & \checkmark \\
+without prevalence               & $+0.011$ & $0.33$ & --- \\
+$n^\star$ rule replaced          & $+0.000$ & --- & --- \\
+no marginal recalibration        & $+0.000$ & --- & --- \\
+\bottomrule
+\end{tabular}
+\caption{Ablations on ImageNet at $\alpha=0.10$, ten splits. Positive means the full method is
+better. $d_z$ is Cohen's paired effect size; the last column marks Holm-corrected significance
+at $0.05$ \cite{holm1979simple}. The last two rows are identical to the full method at matched
+set size by construction (\cref{app:invisible}).}
+\label{tab:ablation}
 \end{table}
 
 \section{Why recalibration is invisible at matched size}

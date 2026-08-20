@@ -135,7 +135,7 @@ else:
     lam = float(z["lam"])
 
     ok = seen[np.isfinite(obs[seen])]          # labelled classes with an observed offset
-    fig, ax = plt.subplots(figsize=(3.25, 2.45))
+    fig, ax = plt.subplots(figsize=(3.25, 2.70))
 
     lim = np.percentile(np.concatenate([obs[ok], hat[seen], hat[held]]), [1, 99])
     pad = 0.12 * (lim[1] - lim[0])
@@ -156,8 +156,10 @@ else:
     ax.set_ylim(lo, hi)
     ax.set_xlabel(r"predicted offset $g_\theta(\varphi(y))$")
     ax.set_ylabel(r"observed offset $\delta_y$")
-    ax.legend(frameon=False, loc="lower right", handlelength=1.4,
-              borderaxespad=0.3, labelspacing=0.35, scatterpoints=1)
+    # the real offsets fill every corner, so the legend goes outside the axes
+    ax.legend(frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.20),
+              ncol=2, handlelength=1.2, columnspacing=1.4, handletextpad=0.4,
+              borderaxespad=0.0, scatterpoints=1)
     fig.tight_layout(pad=0.3)
     fig.savefig(os.path.join(OUT, "fig_method.pdf"))
     plt.close(fig)

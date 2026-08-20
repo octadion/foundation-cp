@@ -1,38 +1,6 @@
 \section{Related Work}
 \label{sec:related}
 
-% ---------------------------------------------------------------- method summary
-\begin{table}[t]
-\centering
-\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}lll@{}}
-\toprule
-Method & $q_y$ built from & If $n_y=0$ \\
-\midrule
-\textsc{Standard} \cite{vovk2005algorithmic}  & shared quantile   & shared \\
-\textsc{Classwise} \cite{sadinle2019least}    & own quantile      & $\infty$ \\
-\textsc{Clustered} \cite{ding2023class}       & cluster quantile  & shared \\
-\textsc{Rc3p} \cite{shi2024rank}              & quantile + rank   & $\infty$ \\
-\textsc{Fuzzy} \cite{ding2026conformal}       & kernel weights    & shared \\
-\textsc{Pas} \cite{ding2026conformal}         & shared quantile   & shared \\
-\textsc{Interp-Q} \cite{ding2026conformal}    & blend of the two  & capped \\
-\textsc{Tacp} \cite{liu2026tail}              & head penalty      & by group \\
-\midrule
-\textbf{PCC} (ours) & $g_\theta(\varphi(y))$ & \textbf{predicted} \\
-\bottomrule
-\end{tabular}
-\caption{Methods that give a class its own conformal threshold. All of them target at least
-marginal coverage; the columns that separate them are what happens to a class with no labelled
-calibration examples, and how specific to that class the threshold it receives can be. Three
-methods do produce a defined threshold there without per-class labels: \textsc{Pas} reshapes the
-score using prevalence, \textsc{Interp-Q} caps the undefined classwise quantile at one before
-blending, and \textsc{Tacp} penalises the score of head classes, which gives one degree of
-freedom per prevalence group instead of one per class. Behaviours were obtained by running the
-authors' released implementations on the same held-out classes, except for \textsc{Tacp}, whose
-authors release no code; \cref{tab:competitors} reports the coverage that results.}
-\label{tab:methods}
-\end{table}
 
 \paragraph{Class-conditional conformal prediction.} Classwise conformal prediction, an
 instance of Mondrian conformal prediction \cite{vovk2005algorithmic}, calibrates an

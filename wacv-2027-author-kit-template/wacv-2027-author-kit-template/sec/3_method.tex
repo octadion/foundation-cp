@@ -93,6 +93,19 @@ from $\varphi(y)$. There is no network and no training loop: $g_\theta$ is a clo
 over at most $K$ points with $p\le 15$ features, which costs milliseconds
 (\cref{tab:runtime}).
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/fig_method.pdf}
+\caption{The mechanism, on the primary ImageNet configuration. Every labelled class
+contributes an observed offset $\delta_y$ and a predicted one $g_\theta(\varphi(y))$; held-out
+classes appear as ticks on the horizontal axis, because the observed coordinate does not exist
+for them. The regression recovers the direction of the correction and understates its
+magnitude, and the classes that decide the minimum lie in the dense band near $\delta_y=0$,
+where the cost is prediction error rather than shrinkage towards the mean. That error is the
+quantity \cref{prop:sup} bounds, and the reason $\hat\lambda=0.10$ and not $1$.}
+\label{fig:method}
+\end{figure}
+
 \paragraph{Step 2: shrink.} The raw prediction is applied with a scalar $\lambda$,
 \begin{equation}
 \tilde\delta_y \;=\; \lambda\cdot g_\theta(\varphi(y)) ,
@@ -110,7 +123,8 @@ restricted to $\mathcal{Y}_{\mathrm{lab}}$. The restriction matters, because cho
 $\lambda$ with help from the held-out classes would let a free parameter manufacture the very
 result the held-out table is meant to test, and it would void \cref{prop:marginal}.
 
-Shrinkage is what makes the method usable, and \cref{prop:sup} says why. Worst-class
+Shrinkage is what makes the method usable, and \cref{prop:sup} says why;
+\cref{fig:method} shows the fit it is applied to. Worst-class
 coverage is controlled by the \emph{largest} error in the offsets, a quantity mean squared
 error does not bound, so a predictor with a respectable $R^2$ can still be harmful at full
 strength: $\lambda=1$ costs $0.584$ relative to the selected $\lambda\approx0.1$, while

@@ -903,7 +903,9 @@ def run(args) -> dict:
             delta_obs=np.asarray(delta_obs, float),
             delta_hat=np.asarray(d_hat_all, float),
             Phi=np.asarray(Phi, float),
-            feature_names=np.array(list(names), dtype=object),
+            # NOT dtype=object: that pickles, and a dump written under numpy 2
+            # then fails to load under numpy 1 with 'No module named numpy._core'
+            feature_names=np.array([str(n) for n in names]),
             seen=np.asarray(seen, int),
             heldout=np.asarray(heldout, int),
             n_per_class=np.asarray(n_per_class, int),

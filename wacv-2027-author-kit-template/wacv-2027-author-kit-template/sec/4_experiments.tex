@@ -63,15 +63,14 @@ statistic by exactly zero (\cref{tab:competitors}). Paired over splits, PCC exce
 with intervals excluding zero; against the two moving \textsc{Fuzzy} variants the differences
 are $0.049$ and $0.072$ but their intervals include zero at three splits.
 
-Two of the zeros are not measurements. \textsc{Classwise} CP and \textsc{Rc3p} return an
-infinite threshold for all $300$ classes, so their entry records the pre-registered fallback
-to the marginal threshold. The other four are measurements, and \textsc{Interp-Q} is the
-instructive one. Its rule for an undefined classwise quantile is to replace it with one, the
-largest value the softmax score can take, and then blend; a held-out class therefore receives
-the widest threshold in the label space, and once set size is matched back down every other
-class pays for it. Sweeping the interpolation weight and keeping the best, the selected weight
-is zero on every split, at which point the method is \textsc{Standard} CP. The construction
-that makes it defined at $n_y=0$ is what makes it unhelpful there.
+Two of the zeros are not measurements: \textsc{Classwise} CP and \textsc{Rc3p} return an
+infinite threshold for all $300$ classes, so their entry records the pre-registered fallback.
+The other four are measurements, and \textsc{Interp-Q} is the instructive one. Its rule for an
+undefined classwise quantile is to replace it with one, the largest value the softmax score can
+take, and then blend, so a held-out class receives the widest threshold in the label space and
+every other class pays for it once set size is matched back down. Sweeping the interpolation
+weight and keeping the best, the selected weight is zero on every split, at which point the
+method is \textsc{Standard} CP.
 
 Prevalence is a weak signal here. \textsc{Fuzzy} CP with the rarity projection reaches $0.003$
 and is beaten by the same method with a \emph{random} projection at $0.027$, so widening
@@ -84,30 +83,6 @@ The gain is paid for. The correction lifts the worst class from $0.569$ to $0.64
 macro-coverage at $0.898$ against $0.896$, but because set size is fixed, $12\%$ of classes
 gain coverage while $27\%$ lose a little (\cref{app:whohelped}).
 
-% ---------------------------------------------------------------- ablations
-\begin{table}[t]
-\centering
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lccc}
-\toprule
-Ablation & $\Delta$ vs.\ full & $d_z$ & Holm \\
-\midrule
-$\lambda=0$ (no correction)      & $+0.032$ & $1.30$ & \checkmark \\
-$\lambda=1$ (unshrunk)           & $+0.584$ & $3.99$ & \checkmark \\
-distance descriptors only        & $+0.039$ & $1.49$ & \checkmark \\
-prevalence descriptor only       & $+0.032$ & $1.30$ & \checkmark \\
-without prevalence               & $+0.011$ & $0.33$ & --- \\
-$n^\star$ rule replaced          & $+0.000$ & --- & --- \\
-no marginal recalibration        & $+0.000$ & --- & --- \\
-\bottomrule
-\end{tabular}
-\caption{Ablations on ImageNet at $\alpha=0.10$, ten splits. Positive means the full method is
-better. $d_z$ is Cohen's paired effect size; the last column marks Holm-corrected significance
-at $0.05$ \cite{holm1979simple}. The last two rows are identical to the full method at matched
-set size by construction (\cref{app:invisible}).}
-\label{tab:ablation}
-\end{table}
 
 \subsection{Ablations}
 \label{sec:ablations}
