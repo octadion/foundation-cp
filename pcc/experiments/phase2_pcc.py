@@ -893,6 +893,30 @@ def run(args) -> dict:
                     seed=args.seed)
     t = model.thresholds()
 
+    # --dump-fit: the arrays behind the method figure, saved from THIS run so the figure and
+    # the tables cannot disagree about the split, the seed or the fit.
+    dump_fit = getattr(args, "dump_fit", None)
+    if dump_fit:
+        d_hat_all = model.gtheta.predict(np.asarray(Phi, float))
+        np.savez_compressed(
+            dump_fit,
+            delta_obs=np.asarray(delta_obs, float),
+            delta_hat=np.asarray(d_hat_all, float),
+            Phi=np.asarray(Phi, float),
+            feature_names=np.array(list(names), dtype=object),
+            seen=np.asarray(seen, int),
+            heldout=np.asarray(heldout, int),
+            n_per_class=np.asarray(n_per_class, int),
+            class_counts=np.asarray(cnt_full, float),
+            q_global=float(q_global),
+            lam=float(model.lam),
+            offset=float(model.offset),
+            n_cal=int(args.n_cal),
+            alpha=float(args.alpha),
+        )
+        print("  dump-fit -> {} ({} kelas, {} fitur)".format(
+            dump_fit, len(delta_obs), len(names)), flush=True)
+
     # RESTRICT TO CLASSES WHERE THE METRIC IS MEASURABLE AT ALL.
     #
     # The evaluation-depth sweep showed the oracle ceiling itself falls to zero below about
@@ -1069,6 +1093,9 @@ def main(argv=None) -> int:
                    help="comma-separated neighbour counts, e.g. 1,5,10,50")
     p.add_argument("--drop-features", default=None,
                    help="comma-separated descriptor names to remove, e.g. w_bias")
+    p.add_argument("--dump-fit", default=None,
+                   help="write delta_obs, Phi, g_theta's predictions and the class split to "
+                        "this .npz, for the method figure")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--name", default=None)
     p.add_argument("--print-json", action="store_true")

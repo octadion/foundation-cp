@@ -123,6 +123,48 @@ fig.tight_layout(pad=0.35, w_pad=1.4)
 fig.savefig(os.path.join(OUT, "fig_sweeps.pdf"))
 plt.close(fig)
 
+# ========================================================== method figure (nb14)
+FIT = os.path.join(REPO, "fit_primary.npz")
+if not os.path.exists(FIT):
+    print("lewati fig_method.pdf: %s belum ada (jalankan notebooks/14_class_counts.ipynb)"
+          % os.path.basename(FIT))
+else:
+    z = np.load(FIT, allow_pickle=True)
+    obs, hat = np.asarray(z["delta_obs"], float), np.asarray(z["delta_hat"], float)
+    seen, held = np.asarray(z["seen"], int), np.asarray(z["heldout"], int)
+    lam = float(z["lam"])
+
+    ok = seen[np.isfinite(obs[seen])]          # labelled classes with an observed offset
+    fig, ax = plt.subplots(figsize=(3.25, 2.45))
+
+    lim = np.percentile(np.concatenate([obs[ok], hat[seen], hat[held]]), [1, 99])
+    pad = 0.12 * (lim[1] - lim[0])
+    lo, hi = lim[0] - pad, lim[1] + pad
+
+    ax.plot([lo, hi], [lo, hi], color=GREY, lw=0.7, ls=(0, (4, 3)), zorder=1)
+    ax.scatter(hat[ok], obs[ok], s=5, color=BLUE, alpha=0.45, linewidths=0,
+               zorder=3, label="labelled class ($n_y \\geq n_{\\mathrm{cal}}$)")
+    # held-out classes have no observed offset; they exist only on the horizontal axis
+    ax.plot(hat[held], np.full(len(held), lo + 0.035 * (hi - lo)), "|",
+            color=RED, ms=4, mew=0.7, zorder=4,
+            label="held out ($n_y = 0$)")
+
+    r = np.corrcoef(hat[ok], obs[ok])[0, 1]
+    ax.text(0.03, 0.96, "$r = {:.2f}$,  $\\hat\\lambda = {:.2f}$".format(r, lam),
+            transform=ax.transAxes, va="top", fontsize=7.5)
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.set_xlabel(r"predicted offset $g_\theta(\varphi(y))$")
+    ax.set_ylabel(r"observed offset $\delta_y$")
+    ax.legend(frameon=False, loc="lower right", handlelength=1.4,
+              borderaxespad=0.3, labelspacing=0.35, scatterpoints=1)
+    fig.tight_layout(pad=0.3)
+    fig.savefig(os.path.join(OUT, "fig_method.pdf"))
+    plt.close(fig)
+    print("fig_method.pdf")
+    print("  %d kelas berlabel dengan offset teramati, %d held-out, r = %.2f, lambda = %.2f"
+          % (len(ok), len(held), r, lam))
+
 # ======================================================= motivating figure (nb14)
 # Per-class evaluation counts are not in the run reports, so this block needs
 # class_counts.json from notebook 14. Without it the rest of the script still runs.

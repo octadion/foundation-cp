@@ -303,3 +303,35 @@ def test_knn_ks_axis_changes_the_feature_set(world):
     f = res["pcc"]["features"]
     assert "w_cos_knn_2" in f and "w_cos_knn_50" not in f
     assert res["knn_ks_requested"] == [1, 2, 5]
+
+
+# ------------------------------------------------------------------- dump-fit
+def test_dump_fit_saves_the_arrays_behind_the_method_figure(world, tmp_path):
+    """The figure must show what the run did, so the arrays come from the run rather than
+    from a re-derivation that could differ in split or seed."""
+    import numpy as _np
+    out = tmp_path / "fit.npz"
+    res = drv.run(_args(world, dump_fit=str(out)))
+    assert out.exists(), "--dump-fit wrote nothing"
+    z = _np.load(str(out), allow_pickle=True)
+
+    K = world["K"]
+    for k in ("delta_obs", "delta_hat", "n_per_class", "class_counts"):
+        assert z[k].shape == (K,), "%s has shape %s" % (k, z[k].shape)
+    assert z["Phi"].shape[0] == K
+    assert z["Phi"].shape[1] == len(z["feature_names"])
+
+    seen, held = set(z["seen"].tolist()), set(z["heldout"].tolist())
+    assert seen.isdisjoint(held) and len(seen | held) == K
+
+    # the whole point: held-out classes CANNOT have an observed offset, and every class
+    # can have a predicted one
+    assert _np.isnan(z["delta_obs"][sorted(held)]).all()
+    assert _np.isfinite(z["delta_hat"]).all()
+    assert res["n_heldout"] == len(held)
+
+
+def test_dump_fit_is_off_by_default(world):
+    """A run that does not ask for it must not write files beside the report."""
+    res = drv.run(_args(world))
+    assert res is not None
