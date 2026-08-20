@@ -123,6 +123,50 @@ fig.tight_layout(pad=0.35, w_pad=1.4)
 fig.savefig(os.path.join(OUT, "fig_sweeps.pdf"))
 plt.close(fig)
 
+# ======================================================= motivating figure (nb14)
+# Per-class evaluation counts are not in the run reports, so this block needs
+# class_counts.json from notebook 14. Without it the rest of the script still runs.
+CC = os.path.join(REPO, "class_counts.json")
+if not os.path.exists(CC):
+    print("lewati fig_measurable.pdf: %s belum ada (jalankan notebooks/14_class_counts.ipynb)"
+          % os.path.basename(CC))
+else:
+    cc = json.load(io.open(CC, encoding="utf-8"))
+    # name in the JSON -> label in the figure, in the order we want them drawn
+    WANT = [("ccc_imagenet", "ImageNet", "-"),
+            ("ltc_plantnet", "Pl@ntNet-300K", "--"),
+            ("ltc_inaturalist", "iNaturalist-2018", ":")]
+    THRESHOLD = 30
+
+    fig, ax = plt.subplots(figsize=(3.25, 2.05))
+    drawn = []
+    for key, label, ls in WANT:
+        if key not in cc:
+            continue
+        c = np.asarray(cc[key]["counts"], float)
+        c = np.sort(c[c > 0])[::-1]
+        x = np.arange(1, len(c) + 1) / float(len(c)) * 100.0
+        ax.plot(x, c, ls=ls, color=BLUE if key == "ccc_imagenet" else
+                (RED if key.endswith("plantnet") else GREY), label=label)
+        below = 100.0 * float((c < THRESHOLD).mean())
+        drawn.append((label, len(c), below))
+    ax.axhline(THRESHOLD, color="#000000", lw=0.7, ls=(0, (5, 3)))
+    ax.text(99, THRESHOLD * 1.30, "worst-class coverage measurable above",
+            fontsize=6.6, ha="right")
+    ax.set_yscale("log")
+    ax.set_xlim(0, 100)
+    ax.set_xlabel("classes, sorted by count (\%)" if plt.rcParams.get("text.usetex")
+                  else "classes, sorted by count (%)")
+    ax.set_ylabel("evaluation examples per class")
+    ax.legend(frameon=False, loc="upper right", handlelength=2.0,
+              borderaxespad=0.3, labelspacing=0.35)
+    fig.tight_layout(pad=0.3)
+    fig.savefig(os.path.join(OUT, "fig_measurable.pdf"))
+    plt.close(fig)
+    print("fig_measurable.pdf")
+    for label, k, below in drawn:
+        print("  %-18s %5d kelas, %.0f%% di bawah %d contoh" % (label, k, below, THRESHOLD))
+
 for f in ("fig_overview.pdf", "fig_evaldepth.pdf", "fig_heldout.pdf"):
     p = os.path.join(OUT, f)
     if os.path.exists(p):
