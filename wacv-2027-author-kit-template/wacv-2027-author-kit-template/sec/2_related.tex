@@ -14,10 +14,10 @@ the quantiles of its own score distribution and compute a kernel-weighted quanti
 borrows from nearby classes, alongside a prevalence-adjusted score function.
 
 All of these embeddings are built from the labelled calibration scores of the class being
-embedded. A class with none therefore has no position, and the fall-backs differ only in where
-it is placed: at the extreme of the range, in a null cluster, or at an infinite threshold. In
-every case the class ends up sharing a threshold with others, and none of its own. Descriptors read from the classifier's weights have no such gap, which is the difference
-\cref{tab:competitors} measures.
+embedded. A class with none therefore has no position of its own, and the fall-backs differ only in
+where it is placed: at the extreme of the range, in a null cluster, or at an infinite
+threshold. Descriptors read from the classifier's weights have no such gap, which is the
+difference \cref{tab:competitors} measures.
 
 \paragraph{Conformal score functions.} Normalised and locally adaptive conformal prediction
 estimate a per-instance difficulty from the features and rescale the score by it
@@ -34,10 +34,10 @@ the softmax probability by an estimate of the class prior, which is optimal for 
 among procedures of a given expected set size, and blend the classwise and marginal quantiles
 with a user-chosen weight. \citet{liu2026tail} add a rank-dependent penalty to the scores of
 head classes, with a smooth reweighting in their sTACP variant, and prove a smaller head-tail
-coverage gap. Both remain defined for a class with no calibration examples, and both draw
-their per-class signal from a single scalar. That scalar is weak. Prevalence alone is significantly
-worse than geometry (\cref{tab:ablation}) and is beaten by a random projection of
-the same dimension (\cref{tab:competitors}).
+coverage gap. Both remain defined for a class with no calibration examples, and both draw their
+per-class signal from one scalar. Prevalence alone is significantly worse than geometry
+(\cref{tab:ablation}) and is beaten by a random projection of the same dimension
+(\cref{tab:competitors}).
 
 \paragraph{Group-conditional coverage.} A third family asks for coverage conditional on group
 membership instead of per class. \citet{bairaktari2025kandinsky} give the general form,
@@ -48,9 +48,9 @@ which we return to in \cref{sec:discussion}.
 \paragraph{Conformal prediction under distribution shift.} Coverage can be restored under
 covariate shift by importance-weighting the calibration scores \cite{tibshirani2019conformal},
 or over time by adapting the miscoverage level from observed errors \cite{gibbs2021adaptive}.
-Both require something our setting does not provide, namely a density ratio or online label
-feedback, so we cite them as the route to a guarantee and read our corrupted-input experiment
-as a stress test, making no coverage claim there (\cref{app:imagenetc}).
+Both need a density ratio or online label feedback, which our setting does not provide, so
+we read our corrupted-input experiment as a stress test and make no coverage claim there
+(\cref{app:imagenetc}).
 
 \paragraph{Long-tailed recognition.} Reweighting and logit adjustment improve accuracy under
 class imbalance \cite{menon2021long}, and fine-grained biodiversity datasets have made the

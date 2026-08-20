@@ -360,8 +360,10 @@ monotonically, so $\hat\delta$ is not degenerate; it carries signal, and the sig
 Because the grid contains $\lambda=0$, the selection step returns the marginal threshold and the
 method neither helps nor harms. The cross-validated error of $g_\theta$ is $0.127$ here against
 $0.036$ on ImageNet, so the regression is roughly three and a half times worse in a label space
-eight times larger, fitted in a descriptor space of the same dimension. We did not test whether
-richer descriptors recover the signal and state that as the open question.
+eight times larger, fitted in a descriptor space of the same dimension. A richer regression
+head does not recover it: the quadratic and kernel heads of \cref{app:heads} abstain in all
+five splits here, exactly as the ridge does. Whether richer descriptors would is untested, and
+is the open question.
 
 \begin{table}[h]
 \centering
@@ -784,6 +786,72 @@ cross-validated mean squared error of $g_\theta$ on the labelled classes. The ne
 held out as the distance baseline follows the smallest $k$ requested, so each arm withholds its
 own feature and none is advantaged.}
 \label{tab:descriptors}
+\end{table}
+
+\section{The regression head}
+\label{app:heads}
+
+\Cref{sec:correction} fits $g_\theta$ by ridge regression. Whether that linear form is what
+limits the method is a fair question, and it is sharpest on iNaturalist-2018, where the
+regression carries no usable signal at all. We replaced the ridge with two closed-form
+nonlinear heads and changed nothing else: a \emph{quadratic} head, a ridge over the squares
+and pairwise products as well as the features, and \emph{kernel} ridge with an RBF kernel.
+Both are shrunk, selected and recalibrated by the same procedure as the linear head, so the
+rows of \cref{tab:heads} are comparable with the rest of the paper. The class floor is checked
+against the coefficients each head actually fits, which for the quadratic head over $p=9$
+features is $54$ rather than $9$.
+
+The linear head is not the constraint. On ImageNet the quadratic head moves the point estimate
+by $0.0004$ and widens the interval to include zero, beating the linear head on one of the five
+splits, tying on two and losing on two; its standard deviation across splits is $0.079$ against
+the linear head's $0.059$. The kernel head is worse at every width we tried, and at
+$\gamma=3$ it is worse than applying no correction.
+
+On the long-tailed datasets the reason is visible rather than inferred. Pl@ntNet-300K is where
+the extra capacity ought to pay, since there is a real effect to find, and there the shrinkage
+step declines to use the nonlinear predictions: $\hat\lambda=0$ in three of five splits for
+both nonlinear heads and in none of them for the linear head. On iNaturalist-2018 every head
+abstains in every split, so what fails at $K=8142$ is not the functional form of $g_\theta$.
+The oracle ceiling there is $0.018$, and that is the more immediate obstacle.
+
+The direction is the one \cref{prop:sup} describes. Worst-class coverage is controlled by the
+largest error in the predicted offsets, and a head with more capacity fits the labelled classes
+more closely without any corresponding control on its worst error over classes it has never
+seen. We did not measure that sup-norm error directly, so this is an interpretation and not a
+second measurement; what is measured is that the extra capacity buys no point estimate, costs
+interval width on every dataset, and is declined outright wherever the shrinkage step is free
+to decline it.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}llccc@{}}
+\toprule
+Data & Head & $\Delta$ worst-class & $\bar\lambda$ & $\hat\lambda{=}0$ \\
+\midrule
+\multirow{5}{*}{\shortstack[l]{Image\\Net}}
+ & linear    & $\mathbf{+0.058}\ [+0.006,+0.110]$ & $0.10$ & $0/5$ \\
+ & quadratic & $+0.058\ [-0.011,+0.128]$ & $0.20$ & $0/5$ \\
+ & kernel    & $+0.026\ [+0.008,+0.045]$ & $0.32$ & $0/5$ \\
+ & \ \ $\gamma{=}0.3$ & $+0.046\ [+0.004,+0.088]$ & $0.23$ & $0/3$ \\
+ & \ \ $\gamma{=}3$   & $-0.022\ [-0.065,+0.021]$ & $0.27$ & $0/3$ \\
+\midrule
+\multirow{3}{*}{\shortstack[l]{Pl@nt\\Net}}
+ & linear    & $\mathbf{+0.019}\ [+0.010,+0.028]$ & $0.22$ & $0/5$ \\
+ & quadratic & $+0.014\ [-0.009,+0.038]$ & $0.06$ & $3/5$ \\
+ & kernel    & $+0.009\ [-0.005,+0.023]$ & $0.04$ & $3/5$ \\
+\midrule
+iNat & all & $+0.000\ [0.000,0.000]$ & $0.00$ & $5/5$ \\
+\bottomrule
+\end{tabular}
+\caption{Replacing the ridge $g_\theta$ with a nonlinear head, everything else at the
+configuration of the corresponding table. Five splits, except the two indented RBF-width rows,
+which are three and carry their own ceiling of $0.153$. Unindented kernel rows use $\gamma=1$.
+Oracle ceilings are $0.140$ on ImageNet, $0.086$ on Pl@ntNet-300K under the $75$-example
+restriction of \cref{tab:longtail}, and $0.018$ on iNaturalist-2018. The last column counts
+splits in which the shrinkage step declined the prediction entirely.}
+\label{tab:heads}
 \end{table}
 
 \section{Runtime}

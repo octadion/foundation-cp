@@ -149,12 +149,12 @@ largest prediction error of $g_\theta$. When the second exceeds the first, an in
 $\lambda$ beats both endpoints, which is what \cref{tab:ablation} measures.
 
 \paragraph{Accuracy required of $g_\theta$.} We have no theory saying when $\varphi$ predicts
-$\delta$ well, and the method works exactly as far as the regression does. Across our three
+$\delta$ well, and the method works exactly as far as the regression does; a quadratic or
+kernel head does not change that (\cref{app:heads}). Across our three
 datasets the two line up monotonically. The cross-validated error of $g_\theta$ is $0.036$ on
 ImageNet, $0.072$ on Pl@ntNet-300K and $0.127$ on iNaturalist-2018, against worst-class
-improvements of $0.058$, $0.019$ and $0.000$. Because \cref{eq:lambda} can return
-$\hat\lambda=0$, a poor regression is abstained from and not acted on, which is what happens
-on iNaturalist-2018 in every split (\cref{sec:depth}).
+improvements of $0.058$, $0.019$ and $0.000$. Because \cref{eq:lambda} can return $\hat\lambda=0$, a poor regression is
+abstained from, which is what happens on iNaturalist-2018 in every split (\cref{sec:depth}).
 
 \paragraph{Step 3: recalibrate.} Finally one scalar $c$ is refit, on labelled-class rows only,
 so that marginal coverage returns to $1-\alpha$. The prediction set is

@@ -34,7 +34,8 @@ understood this (\cref{sec:depth}).
 \paragraph{Future work.} The most direct next step is a larger evaluation set for the rare
 classes themselves, since the restriction in \cref{tab:longtail} keeps under a tenth of the
 label space. A second question is why $\varphi$ carries signal at $K=1081$ classes and not at
-$K=8142$; \cref{app:longtail} locates the failure in the regression itself. The
+$K=8142$; the failure is in the regression's accuracy rather than its form
+(\cref{app:longtail,app:heads}). The
 most interesting direction is a formal statement to replace the empirical one. No procedure can
 bound coverage for an individual class with $n_y=0$, but group-conditional conformal prediction
 can bound it for a neighbourhood of classes, and the framework of
