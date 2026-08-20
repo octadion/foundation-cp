@@ -79,9 +79,10 @@ does. Our feature ablation agrees independently, since prevalence-only descripto
 $\lambda$ to zero in all ten splits (\cref{tab:ablation}). The descriptors of \cref{sec:phi}
 buy $2.8$ times what a random direction buys.
 
-The gain is paid for. The correction lifts the worst class from $0.569$ to $0.647$ and leaves
-macro-coverage at $0.898$ against $0.896$, but because set size is fixed, $12\%$ of classes
-gain coverage while $27\%$ lose a little (\cref{app:whohelped}).
+The gain is paid for. On the first split the correction lifts the worst class from $0.658$ to
+$0.691$ and moves macro-coverage from $0.904$ to $0.900$, but because set size is fixed,
+$11\%$ of classes gain coverage while $43\%$ lose a mean of $0.004$
+(\cref{fig:coverage,tab:whohelped}).
 
 
 \subsection{Ablations}
@@ -223,10 +224,10 @@ $0.132$, so the rise there comes from the method and not from a wider ceiling.}
 \paragraph{Corrupted inputs.}
 \label{sec:shift}
 Calibrating on clean images and evaluating on ImageNet-C \cite{hendrycks2019benchmarking},
-over $15$ corruptions at two severities, breaks exchangeability, so the guarantee is void for
-every method compared. At contrast severity $5$, marginal coverage is $0.053$ and $75.7\%$ of
-test points receive an empty set. Pooled over the $90$ conditions PCC gives $0.003$
-$[0.001,0.005]$, an order of magnitude below the clean setting. We make no coverage claim here
+over $15$ corruptions at two severities, breaks exchangeability, so we make no coverage claim
+here and neither can any method compared. At contrast severity $5$, marginal coverage is
+$0.053$ and $75.7\%$ of test points receive an empty set. Pooled over the $90$ conditions PCC
+gives $0.003$ $[0.001,0.005]$, an order of magnitude below the clean setting
 (\cref{app:imagenetc}).
 
 \paragraph{Computational cost.} PCC trains nothing: a closed-form ridge fit over at most $K$

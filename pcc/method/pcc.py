@@ -59,7 +59,8 @@ from typing import Optional, Sequence
 import numpy as np
 
 from pcc.eval.conformal import restrict_to_classes
-from pcc.eval.predictability import ridge_fit, ridge_predict
+from pcc.eval.predictability import (_standardize_fit, ridge_fit,
+                                     ridge_predict)
 from pcc.eval.setsize import (avg_set_size_at_shift, corrected_thresholds,
                               equity_at_matched_size, select_shrinkage)
 
@@ -74,6 +75,7 @@ __all__ = [
     "GTheta",
     "PCCModel",
     "fit_gtheta",
+    "GTHETA_KINDS",
     "gtheta_cv_mse",
     "quantile_noise_at_n",
     "data_threshold",
@@ -86,28 +88,89 @@ __all__ = [
 
 
 # --------------------------------------------------------------------------- g_θ
+GTHETA_KINDS = ("linear", "quadratic", "kernel")
+
+
+def _expand_quadratic(X):
+    """[x, x², and every pairwise product]. p features become p(p+3)/2."""
+    X = np.asarray(X, float)
+    p = X.shape[1]
+    cross = [X[:, i] * X[:, j] for i in range(p) for j in range(i + 1, p)]
+    return np.column_stack([X, X ** 2] + cross) if cross else np.column_stack([X, X ** 2])
+
+
+def _fit_head(X, y, lam, kind, gamma):
+    """Closed-form fit of one of GTHETA_KINDS. 'linear' is the original code path."""
+    # the linear head keeps the flat {w, mu, sd} shape it has always had, so callers and
+    # tests that read model["w"] still work; only a "kind" key is added beside it
+    if kind == "linear":
+        return dict(ridge_fit(X, y, lam), kind="linear")
+    if kind == "quadratic":
+        return dict(ridge_fit(_expand_quadratic(X), y, lam), kind="quadratic")
+    if kind == "kernel":
+        # RBF kernel ridge. Distances are taken on standardized features and divided by
+        # the feature count, so gamma near 1 is a sensible default at any p.
+        mu, sd = _standardize_fit(X)
+        Xs = (np.asarray(X, float) - mu) / sd
+        d2 = _sqdist(Xs, Xs)
+        K = np.exp(-gamma * d2 / Xs.shape[1])
+        ybar = float(np.mean(y))
+        a = np.linalg.solve(K + lam * np.eye(len(K)), np.asarray(y, float) - ybar)
+        return {"kind": "kernel", "mu": mu, "sd": sd, "Xs": Xs, "a": a,
+                "ybar": ybar, "gamma": float(gamma)}
+    raise ValueError("unknown g_theta kind {!r}, expected one of {}".format(kind, GTHETA_KINDS))
+
+
+def _predict_head(model, X):
+    kind = model.get("kind", "linear")
+    if kind == "linear":
+        return ridge_predict(model, X)
+    if kind == "quadratic":
+        return ridge_predict(model, _expand_quadratic(X))
+    Xs = (np.asarray(X, float) - model["mu"]) / model["sd"]
+    K = np.exp(-model["gamma"] * _sqdist(Xs, model["Xs"]) / Xs.shape[1])
+    return K @ model["a"] + model["ybar"]
+
+
+def _sqdist(A, B):
+    A, B = np.asarray(A, float), np.asarray(B, float)
+    d2 = (A ** 2).sum(1)[:, None] + (B ** 2).sum(1)[None, :] - 2.0 * (A @ B.T)
+    return np.maximum(d2, 0.0)
+
+
+def _fitted_dim(n_features, kind):
+    """Coefficients the head will fit, which is what the p+2 floor has to be checked
+    against; the raw feature count understates it for every nonlinear head."""
+    if kind == "quadratic":
+        return n_features * (n_features + 3) // 2
+    return n_features
+
+
 @dataclass
 class GTheta:
-    """φ(y) → δ̂_y. A ridge on standardized descriptors, fit on TRAIN classes only."""
+    """φ(y) → δ̂_y, fit on TRAIN classes only. Linear by default; the nonlinear heads
+    exist to answer whether the linear one is the binding constraint."""
 
     model: dict
     feature_names: tuple
     cols: tuple
     ridge_alpha: float
     n_train_classes: int
+    kind: str = "linear"
 
     def predict(self, Phi: np.ndarray) -> np.ndarray:
         X = np.asarray(Phi, float)[:, list(self.cols)]
         out = np.full(len(X), np.nan)
         ok = np.isfinite(X).all(axis=1)
         if ok.any():
-            out[ok] = ridge_predict(self.model, X[ok])
+            out[ok] = _predict_head(self.model, X[ok])
         return out
 
 
 def fit_gtheta(Phi, delta_obs, train_classes, feature_names, *,
                features: Optional[Sequence[str]] = None,
-               ridge_alpha: float = 1.0) -> GTheta:
+               ridge_alpha: float = 1.0, kind: str = "linear",
+               gamma: float = 1.0) -> GTheta:
     """Fit g_θ on TRAIN classes only.
 
     `train_classes` is the label space g_θ may see. Fitting on any class whose
@@ -126,17 +189,21 @@ def fit_gtheta(Phi, delta_obs, train_classes, feature_names, *,
     tr = np.asarray(train_classes, int)
     ok = np.isfinite(d[tr]) & np.isfinite(Phi[tr][:, cols]).all(axis=1)
     tr = tr[ok]
-    if len(tr) < len(cols) + 2:
+    need = _fitted_dim(len(cols), kind)
+    if len(tr) < need + 2:
         raise ValueError(
-            "too few usable TRAIN classes ({}) for {} features".format(len(tr), len(cols)))
-    return GTheta(model=ridge_fit(Phi[tr][:, cols], d[tr], ridge_alpha),
+            "too few usable TRAIN classes ({}) for {} features fitted as {!r} "
+            "({} coefficients)".format(len(tr), len(cols), kind, need))
+    return GTheta(model=_fit_head(Phi[tr][:, cols], d[tr], ridge_alpha, kind, gamma),
                   feature_names=tuple(use), cols=tuple(cols),
-                  ridge_alpha=float(ridge_alpha), n_train_classes=int(len(tr)))
+                  ridge_alpha=float(ridge_alpha), n_train_classes=int(len(tr)),
+                  kind=str(kind))
 
 
 def gtheta_cv_mse(Phi, delta_obs, train_classes, feature_names, *,
                   features: Optional[Sequence[str]] = None,
-                  ridge_alpha: float = 1.0, n_folds: int = 5, seed: int = 0) -> float:
+                  ridge_alpha: float = 1.0, n_folds: int = 5, seed: int = 0,
+                  kind: str = "linear", gamma: float = 1.0) -> float:
     """Out-of-fold MSE of g_θ, measured **within TRAIN classes**.
 
     This is the "prediction error" side of the §6.7 rule. It must be out-of-fold: the
@@ -159,7 +226,8 @@ def gtheta_cv_mse(Phi, delta_obs, train_classes, feature_names, *,
             continue
         try:
             g = fit_gtheta(Phi, d, fit, feature_names,
-                           features=features, ridge_alpha=ridge_alpha)
+                           features=features, ridge_alpha=ridge_alpha,
+                           kind=kind, gamma=gamma)
         except ValueError:
             continue
         pred = g.predict(np.asarray(Phi, float)[held])
@@ -499,7 +567,8 @@ class PCCModel:
 def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
             score_matrix_fit, labels_fit, train_classes,
             features: Optional[Sequence[str]] = None,
-            ridge_alpha: float = 1.0, target_size: Optional[float] = None,
+            ridge_alpha: float = 1.0, gtheta_kind: str = "linear",
+            gtheta_gamma: float = 1.0, target_size: Optional[float] = None,
             stat: str = "worst", n_folds: int = 5, n_star_rule: str = "oos",
             class_counts: Optional[np.ndarray] = None,
             lam_override: Optional[float] = None,
@@ -516,14 +585,16 @@ def fit_pcc(Phi, feature_names, delta_obs, n_per_class, q_global, alpha, *,
     tr = np.asarray(train_classes, int)
 
     g = fit_gtheta(Phi, delta_obs, tr, feature_names,
-                   features=features, ridge_alpha=ridge_alpha)
+                   features=features, ridge_alpha=ridge_alpha,
+                   kind=gtheta_kind, gamma=gtheta_gamma)
     d_hat = g.predict(np.asarray(Phi, float))
 
     # The MSE crossing is still computed and reported — it is informative about where the
     # empirical estimate becomes accurate — but it does NOT choose n_star. See
     # `select_n_star` for why that currency was wrong.
     mse = gtheta_cv_mse(Phi, delta_obs, tr, feature_names, features=features,
-                        ridge_alpha=ridge_alpha, n_folds=n_folds, seed=seed)
+                        ridge_alpha=ridge_alpha, n_folds=n_folds, seed=seed,
+                        kind=gtheta_kind, gamma=gtheta_gamma)
     mse_rule = data_threshold(score_matrix_fit, labels_fit, tr, alpha, q_global, mse,
                               seed=seed)
 

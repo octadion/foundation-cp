@@ -57,5 +57,7 @@ wacv-2027-author-kit-template/**/main.pdf
 # figures/ berisi gambar hasil scripts/make_figures.py, bukan hasil kompilasi.
 # Pola *.pdf yang lama menelannya, dan tanpa berkas itu Overleaf gagal build.
 !wacv-2027-author-kit-template/**/figures/*.pdf
-Stanford Agentic Reviewer - pcc.pdf
+# Laporan reviewer AI: masukan, bukan sumber. Pola lama hanya menutup berkas
+# pertama, jadi unduhan kedua muncul sebagai untracked.
+Stanford Agentic Reviewer*.pdf
 2507.06867v3.pdf

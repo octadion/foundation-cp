@@ -898,6 +898,8 @@ def run(args) -> dict:
                     lam_override=getattr(args, "lam_override", None),
                     n_star_rule=getattr(args, "n_star_rule", "oos"),
                     recalibrate=not getattr(args, "no_recalibrate", False),
+                    gtheta_kind=getattr(args, "gtheta", "linear"),
+                    gtheta_gamma=float(getattr(args, "gtheta_gamma", 1.0)),
                     seed=args.seed)
     t = model.thresholds()
 
@@ -961,6 +963,8 @@ def run(args) -> dict:
                           and k != "used_observed"},
                 "lambda_curve_train": model.lambda_selection["curve"],
                 "features": list(model.gtheta.feature_names),
+                # without this a kernel run's report is indistinguishable from a linear one
+                "gtheta": model.gtheta.kind,
                 "provenance": model.provenance},
     }
 
@@ -1117,6 +1121,10 @@ def main(argv=None) -> int:
                    help="comma-separated neighbour counts, e.g. 1,5,10,50")
     p.add_argument("--drop-features", default=None,
                    help="comma-separated descriptor names to remove, e.g. w_bias")
+    p.add_argument("--gtheta", choices=("linear", "quadratic", "kernel"), default="linear",
+                   help="regression head for g_theta; the paper's tables are all linear")
+    p.add_argument("--gtheta-gamma", type=float, default=1.0,
+                   help="RBF width for --gtheta kernel, on standardized features")
     p.add_argument("--dump-fit", default=None,
                    help="write delta_obs, Phi, g_theta's predictions and the class split to "
                         "this .npz, for the method figure")

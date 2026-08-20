@@ -1,0 +1,24 @@
+{
+ "target": 754,
+ "neighbours": [
+  482,
+  848,
+  632
+ ],
+ "names": {
+  "754": "radio",
+  "482": "cassette player",
+  "848": "tape player",
+  "632": "loudspeaker"
+ },
+ "cosine_distance": {
+  "482": 0.7703635114381304,
+  "848": 0.7849588937639199,
+  "632": 0.7892023557875446
+ },
+ "coverage_uncorrected": 0.6578947368421053,
+ "q_global": 0.9657413363456726,
+ "lam": 0.1,
+ "delta_tilde": 0.013240414573559546,
+ "rule": "held-out class with the lowest coverage under the marginal threshold"
+}

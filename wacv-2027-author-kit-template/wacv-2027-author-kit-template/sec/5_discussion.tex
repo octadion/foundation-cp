@@ -8,15 +8,15 @@ undefined for all such classes, and needs labels for as few as a tenth of the cl
 Marginal coverage is preserved because a single scalar is calibrated
 (\cref{prop:marginal}).
 
-\paragraph{Limitations.} There is no finite-sample class-conditional guarantee at $n_y=0$, for
-our method or any other, so our claim for those classes is empirical. The improvement
-attenuates for adaptive scores and disappears at $\alpha=0.01$. Transfer across architectures remains
+\paragraph{Limitations.} The claim at $n_y=0$ is empirical, for the reason
+\cref{sec:correction} gives. The improvement attenuates for adaptive scores and disappears at
+$\alpha=0.01$. Transfer across architectures remains
 untested, since the additional backbones leave $35$ evaluation examples per class, which
 \cref{fig:sweeps}a places below the depth at which anything is detectable.
-Percentages of the ceiling are ratios of averages, and the per-split spread behind them is
-wide, from $2\%$ to $75\%$; five splits is what ImageNet's validation set supports at this
-depth. The depth at which the ceiling collapses was measured on one dataset at one $\alpha$,
-and we would not expect a single number to transfer exactly. Finally, every table uses a
+The per-split spread behind every percentage of the ceiling is wide, and five splits is
+what ImageNet's validation set supports at this depth. The depth at which the ceiling
+collapses was measured on one dataset at one $\alpha$, and we would not expect a single number
+to transfer exactly. Finally, every table uses a
 random per-class subsample of the score dump, adopted for memory reasons
 (\cref{app:rowbudget}); sweeping it over a factor of three moves the improvement by less than
 the interval of any single setting, so the headline is not an artefact of it, but we cannot

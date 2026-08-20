@@ -6,6 +6,20 @@ the true label. Conformal prediction turns any trained classifier into such a pr
 a finite-sample coverage guarantee and no assumptions on the data distribution
 \cite{vovk2005algorithmic,angelopoulos2023gentle}.
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/fig_teaser.pdf}
+\caption{A class with no calibration example still receives a threshold of its own. ImageNet
+class $754$ is held out, so $n_y=0$: every classwise method either leaves it undefined or
+hands it the shared marginal threshold. Its descriptor $\varphi(y)$ is read from the
+classifier head, whose three nearest rows to it are other audio equipment, and the fitted
+regression turns that geometry into an offset. The threshold moves from $\hat q = 0.9657$ to
+$0.9812$ and coverage of the class from $0.658$ to $0.750$, against $0.803$ for an oracle
+given the test labels. The class shown is the held-out class with the lowest coverage under
+the marginal threshold, fixed by that rule before any image was looked at.}
+\label{fig:teaser}
+\end{figure}
+
 The guarantee that comes for free is marginal: averaged over all inputs, the set contains the
 true label with probability at least $1-\alpha$. Since marginal coverage is a prevalence-weighted
 average of the class-conditional coverages, it is dominated by the frequent classes, and a
@@ -35,8 +49,9 @@ row of the classifier head that scores class $y$ has a norm and a bias, and it s
 set of distances from the rows of competing classes. Crowded rows correspond to classes that
 are easily confused and therefore hard to cover. These quantities are available for a class
 with zero calibration examples, since they are determined by the model's parameters and do
-not involve any sample. Our goal is to use them to assign such a class a threshold that is specific to it,
-while keeping the marginal coverage guarantee that split conformal prediction provides.
+not involve any sample. Our goal is to use them to assign such a class a threshold that is
+specific to it, while keeping the marginal coverage guarantee that split conformal prediction
+provides. \Cref{fig:teaser} shows one such class.
 
 \paragraph{Our approach.} Predicted Class Correction (PCC) proceeds in three steps
 (\cref{alg:pcc}). On the

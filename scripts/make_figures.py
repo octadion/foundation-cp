@@ -208,6 +208,149 @@ else:
     print("  %d kelas berlabel dengan offset teramati, %d held-out, r = %.2f, lambda = %.2f"
           % (len(ok), len(held), r, lam))
 
+# ================================================================= fig_teaser
+# The body figure. A class with zero calibration examples still gets a threshold of its own,
+# read off where its row sits among the others in the classifier head. The class shown is
+# fixed by a rule stated before any image was looked at (notebooks/15): the held-out class
+# with the lowest coverage under the marginal threshold. Every number is read from the dump,
+# including the emitted threshold, which is q + lam*delta_hat + c and not q + lam*delta_hat.
+ASSETS = os.path.join(REPO, "figassets")
+META = os.path.join(ASSETS, "meta.json")
+if not (os.path.exists(FIT) and os.path.exists(META)):
+    print("lewati fig_teaser.pdf: butuh fit_primary.npz dan figassets/ "
+          "(jalankan notebooks/15_figure_assets.ipynb)")
+else:
+    import matplotlib.image as mpimg
+    from matplotlib.patches import FancyArrowPatch, Rectangle
+
+    mt = json.load(io.open(META, encoding="utf-8"))
+    z = np.load(FIT, allow_pickle=True)
+    tgt, nbrs = int(mt["target"]), [int(c) for c in mt["neighbours"]]
+    held = np.asarray(z["heldout"], int)
+    i = int(np.where(held == tgt)[0][0])
+    c_unc = float(z["cov_heldout_uncorrected"][i])
+    c_pcc = float(z["cov_heldout_pcc"][i])
+    c_orc = float(z["cov_heldout_oracle"][i])
+    q = float(z["q_global"])
+    q_y = float(np.asarray(z["thresholds"], float)[tgt])   # includes the recalibration scalar
+    alpha = float(z["alpha"])
+
+    lam = float(z["lam"])
+    d_hat = float(np.asarray(z["delta_hat"], float)[tgt])
+
+    fig = plt.figure(figsize=(COL, 2.60))
+    gs_top = fig.add_gridspec(1, 4, left=0.02, right=0.98, top=0.912, bottom=0.592,
+                              wspace=0.09)
+    gs_bot = fig.add_gridspec(1, 1, left=0.09, right=0.97, top=0.340, bottom=0.205)
+
+    for j_, c in enumerate([tgt] + nbrs):
+        ax = fig.add_subplot(gs_top[0, j_])
+        ax.imshow(mpimg.imread(os.path.join(ASSETS, "cls%d.jpg" % c)))
+        ax.set_xticks([]); ax.set_yticks([])
+        edge, lw = (RED, 1.5) if c == tgt else (GREY, 0.6)
+        for sp in ax.spines.values():
+            sp.set_edgecolor(edge); sp.set_linewidth(lw); sp.set_visible(True)
+        ax.set_xlabel(mt["names"][str(c)], fontsize=5.7, labelpad=1.6,
+                      color=INK if c == tgt else GREY)
+
+    fig.text(0.135, 0.949, r"held out, $n_y = 0$", ha="center", va="bottom",
+             fontsize=6.2, color=RED)
+    fig.text(0.645, 0.949, "its three nearest rows in the head",
+             ha="center", va="bottom", fontsize=6.2, color=GREY)
+
+    # the step between the two rows, which is the whole method
+    fig.text(0.5, 0.512,
+             r"$\varphi(y)$ from the head weights  $\rightarrow$  "
+             r"$g_\theta$  $\rightarrow$  $\lambda\,\hat\delta_y = %+.3f$" % (lam * d_hat),
+             ha="center", va="center", fontsize=6.4, color=INK)
+    fig.text(0.5, 0.430,
+             r"threshold  $\hat{q} = %.4f \;\rightarrow\; %.4f$" % (q, q_y),
+             ha="center", va="center", fontsize=6.4, color=INK)
+
+    # what the new threshold bought, on the coverage axis
+    ax = fig.add_subplot(gs_bot[0, 0])
+    ax.set_xlim(0.60, 0.95)
+    ax.set_ylim(-1.05, 1.35)
+    ax.set_yticks([])
+    for sp in ("left", "right", "top"):
+        ax.spines[sp].set_visible(False)
+    ax.set_xticks([0.65, 0.75, 0.85, 0.90])
+    ax.set_xlabel(r"coverage of class %d, %s" % (tgt, mt["names"][str(tgt)]),
+                  fontsize=6.8, labelpad=1.5)
+    ax.axvline(1.0 - alpha, color=INK, lw=0.7, ls=(0, (3, 2.5)), zorder=1)
+    ax.text(1.0 - alpha - 0.004, 1.30, r"target $1-\alpha$", fontsize=6.0, ha="right",
+            va="top", color=INK)
+
+    ax.add_patch(FancyArrowPatch((c_unc, 0.30), (c_pcc, 0.30),
+                                 arrowstyle="-|>", mutation_scale=7,
+                                 lw=0.9, color=BLUE, shrinkA=1.5, shrinkB=1.5, zorder=3))
+    ax.plot([c_unc], [0.30], "o", ms=4.0, color=GREY, zorder=4)
+    ax.plot([c_pcc], [0.30], "o", ms=4.6, color=BLUE, zorder=4)
+    ax.plot([c_orc], [0.30], "o", ms=4.6, mfc="none", mew=0.9, color=GREEN, zorder=4)
+    for x, col, lab in ((c_unc, GREY, "marginal"), (c_pcc, BLUE, "PCC"),
+                        (c_orc, GREEN, "oracle")):
+        ax.text(x, 0.98, "%.3f" % x, fontsize=6.4, ha="center", color=col)
+        ax.text(x, -0.34, lab, fontsize=6.2, ha="center", va="top", color=col)
+
+    fig.savefig(os.path.join(OUT, "fig_teaser.pdf"))
+    _also_png(fig, "chk_teaser")
+    plt.close(fig)
+    print("fig_teaser.pdf")
+    print("  kelas %d (%s), tetangga %s" % (tgt, mt["names"][str(tgt)], nbrs))
+    print("  coverage %.4f -> %.4f (oracle %.4f); ambang %.4f -> %.4f"
+          % (c_unc, c_pcc, c_orc, q, q_y))
+
+# =============================================================== fig_coverage
+# The appendix figure. Worst-class coverage is a minimum, and a minimum says nothing about
+# the shape it was taken from; the sorted curve does. The two label spaces are drawn apart
+# because the paper never averages them together.
+if not os.path.exists(FIT):
+    print("lewati fig_coverage.pdf: fit_primary.npz belum ada")
+else:
+    z = np.load(FIT, allow_pickle=True)
+    alpha = float(z["alpha"])
+    fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH, 2.35), sharey=True)
+    for ax, sp, ttl in ((axes[0], "seen", "labelled classes"),
+                        (axes[1], "heldout", "held-out classes")):
+        arms = (("uncorrected", GREY, "marginal threshold", (0, (3, 2))),
+                ("pcc", BLUE, "PCC", "-"),
+                ("oracle", GREEN, "oracle", (0, (1.2, 1.6))))
+        n, mins = None, []
+        for arm, col, lab, ls in arms:
+            v = np.asarray(z["cov_%s_%s" % (sp, arm)], float)
+            v = np.sort(v[np.isfinite(v)])
+            n = len(v)
+            mins.append((lab, col, v[0]))
+            # rank, not percentile: worst-class coverage is decided by the first few
+            # classes, and a linear percentile axis compresses them into one pixel
+            ax.plot(np.arange(1, n + 1), v, color=col, ls=ls, lw=1.0, label=lab)
+        ax.axhline(1.0 - alpha, color=INK, lw=0.6, ls=(0, (4, 3)), zorder=1)
+        ax.set_xscale("log")
+        ax.set_xlim(1, n)
+        ax.set_ylim(0.55, 1.015)
+        ax.set_xlabel("class rank by coverage")
+        ax.set_title("%s ($%d$)" % (ttl, n), fontsize=8, pad=3)
+        # placed where no curve runs: past rank 20 every arm is well above 0.66
+        for k, (lab, col, mv) in enumerate(mins):
+            ax.text(22.0, 0.578 + 0.036 * (len(mins) - 1 - k), "%.3f" % mv,
+                    fontsize=6.6, color=col, ha="left", va="center")
+        ax.text(22.0, 0.578 + 0.036 * len(mins), "worst", fontsize=6.6, color=INK,
+                ha="left", va="center")
+    axes[0].set_ylabel("class-conditional coverage")
+    axes[0].text(1.6, 1.0 - alpha + 0.010, r"$1-\alpha$", fontsize=7, va="bottom")
+    axes[1].legend(frameon=False, loc="upper left", handlelength=1.8,
+                   borderaxespad=0.5, labelspacing=0.28)
+    fig.tight_layout(pad=0.3)
+    fig.savefig(os.path.join(OUT, "fig_coverage.pdf"))
+    _also_png(fig, "chk_coverage")
+    plt.close(fig)
+    print("fig_coverage.pdf")
+    for sp in ("seen", "heldout"):
+        cu = np.asarray(z["cov_%s_uncorrected" % sp], float)
+        cp = np.asarray(z["cov_%s_pcc" % sp], float)
+        print("  %-8s worst %.4f -> %.4f   median %.4f -> %.4f"
+              % (sp, np.nanmin(cu), np.nanmin(cp), np.nanmedian(cu), np.nanmedian(cp)))
+
 # figures from earlier drafts, removed so a stale PDF cannot be compiled by accident
 for f in ("fig_overview.pdf", "fig_evaldepth.pdf", "fig_heldout.pdf", "fig_measurable.pdf"):
     p = os.path.join(OUT, f)

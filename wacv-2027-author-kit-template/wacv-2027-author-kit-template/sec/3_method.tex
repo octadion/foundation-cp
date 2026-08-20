@@ -17,9 +17,10 @@ examples of class $y$, and let
 \end{equation}
 be the marginal conformal quantile. For a set-valued procedure $\mathcal{C}$ we write
 \begin{equation}
-\mathrm{CondCov}(\mathcal{C},y) = \mathbb{P}\bigl(Y\in\mathcal{C}(X)\mid Y=y\bigr),
-\quad
-W(\mathcal{C}) = \min_{y\in\mathcal{Y}} \mathrm{CondCov}(\mathcal{C},y),
+\begin{aligned}
+\mathrm{CondCov}(\mathcal{C},y) &= \mathbb{P}\bigl(Y\in\mathcal{C}(X)\mid Y=y\bigr), \\
+W(\mathcal{C}) &= \min_{y\in\mathcal{Y}} \mathrm{CondCov}(\mathcal{C},y),
+\end{aligned}
 \label{eq:worst}
 \end{equation}
 so $W$ is the worst-class coverage this paper reports. Classwise conformal prediction replaces
@@ -57,8 +58,8 @@ vector $\delta\in\mathbb{R}^{K}$, every method we report is shifted by the scala
 \label{eq:sigma}
 \end{equation}
 for a common target size $T$, and worst-class coverage is read at $\delta+\sigma(\delta)$. We
-call $\bar\delta = \delta + \sigma(\delta)$ the \emph{matched} offset. This is the
-resource-matched comparison used throughout \cref{sec:exp}.
+call $\bar\delta = \delta + \sigma(\delta)$ the \emph{matched} offset, and every
+comparison in \cref{sec:exp} is read at it.
 
 \subsection{Calibration-label-free class descriptors}
 \label{sec:phi}
@@ -76,10 +77,10 @@ descriptor vector $\varphi(y)\in\mathbb{R}^{p}$, $p=9$, from
 The eight geometric features are functions of the model's parameters alone, so they are
 defined for a class with no examples of any kind and carry no sampling noise. Prevalence is
 counted from the training labels, which are available whenever the model is; the descriptors
-are free of \emph{calibration} labels, though not of labels altogether. Nothing depends on
-prevalence. Removing it costs $0.011$ in worst-class coverage without reaching significance
-($p=0.30$),
-while prevalence alone is significantly worse than the full set (\cref{tab:ablation}). The
+are free of \emph{calibration} labels, though not of labels altogether. No result depends
+on it: removing prevalence costs $0.011$ in worst-class coverage without reaching significance
+($p=0.30$), while prevalence alone is significantly worse than the full set
+(\cref{tab:ablation}). The
 feature that most closely resembles the regression target is held out, so no reported number
 can be attributed to it.
 
@@ -92,19 +93,6 @@ examples, a count fixed in advance, we observe $\delta_y$ from
 from $\varphi(y)$. There is no network and no training loop: $g_\theta$ is a closed-form fit
 over at most $K$ points with $p\le 15$ features, which costs milliseconds
 (\cref{tab:runtime}).
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\linewidth]{figures/fig_method.pdf}
-\caption{The mechanism, on the primary ImageNet configuration. Every labelled class
-contributes an observed offset $\delta_y$ and a predicted one $g_\theta(\varphi(y))$; held-out
-classes appear as ticks on the horizontal axis, because the observed coordinate does not exist
-for them. The regression recovers the direction of the correction and understates its
-magnitude, and the classes that decide the minimum lie in the dense band near $\delta_y=0$,
-where the cost is prediction error rather than shrinkage towards the mean. That error is the
-quantity \cref{prop:sup} bounds, and the reason $\hat\lambda=0.10$ and not $1$.}
-\label{fig:method}
-\end{figure}
 
 \paragraph{Step 2: shrink.} The raw prediction is applied with a scalar $\lambda$,
 \begin{equation}
@@ -238,14 +226,13 @@ event $\tilde s(X_{n+1},Y_{n+1})\le c$ up to the constant shift. Full proof in
 \end{proof}
 
 The proposition holds because only \emph{one} degree of freedom is calibrated on
-$\mathcal{I}_{\mathrm{rec}}$. $\tilde\delta_y$ may be arbitrarily complex, since it merely
+$\mathcal{I}_{\mathrm{rec}}$; $\tilde\delta_y$ may be arbitrarily complex, since it merely
 redefines the score.
 
 \paragraph{Reuse of calibration rows.} The premise names two disjoint row sets, and the
 configuration used for every table in \cref{sec:exp} does not provide them: $g_\theta$,
 $\lambda$ and $c$ are all estimated on the same calibration rows, so $\tilde\delta$ and $c$ are
-dependent and the proposition does not apply as stated. We report the size of the resulting
-optimism, and what removing it costs. On ten ImageNet splits, at the thresholds as they are
+dependent and the proposition does not apply as stated. On ten ImageNet splits, at the thresholds as they are
 emitted, \textsc{Pcc} covers $0.8994$ where the marginal threshold covers $0.9012$ on the same
 rows, so the reuse costs $0.0018$ of marginal coverage, roughly twenty times the finite-sample
 slack $1/(n+1)$ at our calibration sizes. \textsc{Pcc}-split holds a quarter of the calibration
@@ -254,10 +241,8 @@ while changing worst-class coverage by $+0.005$ with an interval containing zero
 (\cref{app:split}). The tables below use the reuse configuration because it is what every
 earlier run used; the split variant is the one we would recommend deploying.
 
-\paragraph{Scope of the claim.} There is no finite-sample class-conditional guarantee for a
-class with $n_y=0$, and there cannot be one for any method, since with no labelled example of
-the class there is nothing to condition on. Our claim for those classes is empirical, namely
-measured worst-class coverage at matched set size, and \cref{sec:exp} reports it as such.
-Furthermore $\lambda$ and $n_{\mathrm{cal}}$ are data-dependent choices made on the labelled
-label space, which makes the labelled-class table optimistic; this is why the two tables are
-kept apart.
+\paragraph{Scope of the claim.} No method can carry a finite-sample class-conditional
+guarantee at $n_y=0$, since there is nothing to condition on. Our claim for those classes is
+empirical, namely measured worst-class coverage at matched set size. And $\lambda$ and
+$n_{\mathrm{cal}}$ are chosen on the labelled label space, which makes the labelled-class
+table optimistic; this is why the two tables are kept apart.

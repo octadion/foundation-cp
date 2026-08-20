@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Prove that notebook 13 can resume after a session crash.
+"""Prove that notebooks 13 and 16 can resume after a session crash.
 
 This is not a re-implementation of the resume logic: the runner cell is lifted out of the
 .ipynb and executed, so what is tested is the code that actually runs in Colab. The driver
@@ -21,18 +21,27 @@ from pathlib import Path
 
 import pytest
 
-NB = Path(__file__).resolve().parents[2] / "notebooks" / "13_review_addenda.ipynb"
+NOTEBOOKS = {
+    "nb13": "13_review_addenda.ipynb",
+    # notebook 16 copies this runner, so it inherits both the mechanism and its failure
+    # modes; testing only the original would leave the copy unguarded
+    "nb16": "16_gtheta_heads.ipynb",
+}
 
 
-def _runner_source():
-    nb = json.loads(NB.read_text(encoding="utf-8"))
+def _nb_path(key):
+    return Path(__file__).resolve().parents[2] / "notebooks" / NOTEBOOKS[key]
+
+
+def _runner_source(key):
+    nb = json.loads(_nb_path(key).read_text(encoding="utf-8"))
     for c in nb["cells"]:
         if c["cell_type"] != "code":
             continue
         src = "".join(c["source"])
         if "def run_one(" in src:
             return src
-    raise AssertionError("runner cell not found in " + str(NB))
+    raise AssertionError("runner cell not found in " + str(_nb_path(key)))
 
 
 class _StubDriver:
@@ -60,9 +69,9 @@ class _StubDriver:
         return "LULUS"
 
 
-@pytest.fixture()
-def harness(tmp_path, monkeypatch):
-    """Execute the notebook's runner cell against a temporary cache directory."""
+@pytest.fixture(params=sorted(NOTEBOOKS))
+def harness(request, tmp_path, monkeypatch):
+    """Execute a notebook's runner cell against a temporary cache directory."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pcc" / "reports").mkdir(parents=True)
     cache = tmp_path / "cache"
@@ -82,12 +91,14 @@ def harness(tmp_path, monkeypatch):
         "PRIMARY_S": "primary_scores.npy",
         "os": os, "time": time, "shutil": shutil, "np": np,
     }
-    exec(compile(_runner_source(), "<nb13 runner>", "exec"), ns)
+    key = request.param
+    exec(compile(_runner_source(key), "<%s runner>" % key, "exec"), ns)
 
     stub = _StubDriver()
     ns["drv"] = stub
     ns["_stub"] = stub
     ns["CACHE_DIR"] = str(cache)      # the cell may re-import os but not reassign this
+    ns["_nb"] = key
     return ns, stub, cache
 
 
@@ -105,7 +116,7 @@ def test_a_finished_run_is_cached_immediately(harness):
     assert len(stub.calls) == 1
     files = list(cache.glob("*.json"))
     assert len(files) == 1, "nothing was written to the Drive cache"
-    assert files[0].name == "nb13_R_reuse_s0.json"
+    assert files[0].name == "%s_R_reuse_s0.json" % ns["_nb"]
     assert len(ns["RESULTS"]) == 1
     assert ns["is_cached"]("R", "reuse", 0) is True
 
@@ -134,11 +145,16 @@ def test_a_changed_config_is_detected_as_stale_and_recomputed(harness):
 @pytest.mark.parametrize("field,value", [
     ("alpha", 0.05), ("n_cal", 25), ("frac_recal", 0.25),
     ("dist_metric", "euclidean"), ("drop_features", ("w_bias",)),
+    # notebook 16's axis. Same phase, same tag, same seed, and a report that looks
+    # identical from the outside -- so only the stored config can tell the arms apart.
+    ("gtheta", "kernel"), ("gtheta_gamma", 3.0),
 ])
 def test_every_axis_this_notebook_sweeps_invalidates_the_cache(harness, field, value):
-    """A new axis that is NOT in the comparison list is the dangerous case: one descriptor
-    arm would be served the cached report of another."""
+    """A new axis that is NOT in the comparison list is the dangerous case: one arm would
+    be served the cached report of another."""
     ns, stub, _ = harness
+    if not hasattr(ns["build"](scores="d.npy", labels="y.npy"), field):
+        pytest.skip("%s is not an axis of %s" % (field, ns["_nb"]))
     _call(ns)
     _call(ns, **{field: value})
     assert len(stub.calls) == 2, "%s did not invalidate the cache" % field
@@ -147,7 +163,8 @@ def test_every_axis_this_notebook_sweeps_invalidates_the_cache(harness, field, v
 def test_a_corrupt_cache_entry_is_recomputed_not_fatal(harness):
     ns, stub, cache = harness
     _call(ns)
-    (cache / "nb13_R_reuse_s0.json").write_text("{not json at all" + "x" * 300)
+    (cache / ("%s_R_reuse_s0.json" % ns["_nb"])).write_text(
+        "{not json at all" + "x" * 300)
     _call(ns)
     assert len(stub.calls) == 2, "a corrupt entry should be recomputed"
 

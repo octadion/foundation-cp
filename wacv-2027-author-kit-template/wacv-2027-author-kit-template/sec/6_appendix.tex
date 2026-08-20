@@ -442,27 +442,65 @@ conditions the improvement is $+0.003$ $[+0.001,+0.005]$.}
 \label{tab:imagenetc}
 \end{table}
 
+\section{What the regression fits}
+\label{app:fit}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figures/fig_method.pdf}
+\caption{The mechanism, on the primary ImageNet configuration. Every labelled class
+contributes an observed offset $\delta_y$ and a predicted one $g_\theta(\varphi(y))$; held-out
+classes appear as ticks on the horizontal axis, because the observed coordinate does not exist
+for them. The regression recovers the direction of the correction and understates its
+magnitude, and the classes that decide the minimum lie in the dense band near $\delta_y=0$,
+where the cost is prediction error rather than shrinkage towards the mean. That error is the
+quantity \cref{prop:sup} bounds, and the reason $\hat\lambda=0.10$ and not $1$.}
+\label{fig:method}
+\end{figure}
+
 \section{Which classes the correction moves}
 \label{app:whohelped}
 
-Worst-class coverage is a minimum, so an improvement in it says nothing on its own about the
-rest of the label space. \Cref{tab:whohelped} therefore reports, for the primary ImageNet
-configuration, the mean change in per-class coverage grouped into prevalence quintiles, along
-with the fraction of classes whose coverage rises and falls. Numbers are from the first split,
-which is the only one for which we stored the per-class breakdown.
+Worst-class coverage is a minimum, and a minimum says nothing about the shape it was taken
+from. \Cref{fig:coverage} therefore plots the whole sorted curve and \cref{tab:whohelped}
+reports the mean change by prevalence quintile, with the fraction of classes that rise and
+fall. Both come from the first split of the primary configuration, the only one for which we
+stored the per-class breakdown.
 
-The pattern is the one an equity intervention at a fixed resource budget should produce. The
-worst class rises from $0.569$ to $0.647$ and macro-coverage moves from $0.898$ to $0.896$,
-while $12\%$ of classes gain coverage and $27\%$ lose a small amount of it. Since the
-comparison holds average set size fixed, coverage given to the classes that were failing has to
-come from somewhere, and it comes in thin slices from the classes that had coverage to spare.
-Whether that trade is worth making is a decision about the application rather than about the
-method, which is why we report both the minimum and the average throughout.
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/fig_coverage.pdf}
+\caption{Class-conditional coverage of every class, sorted, on the primary ImageNet
+configuration. Rank rather than percentile on the horizontal axis, because worst-class
+coverage is decided by the leftmost few classes and a linear axis compresses them to nothing.
+The correction rotates the curve: the tail rises and the classes that had coverage to spare
+give some back, with the crossing near rank $150$ of $300$ on the held-out classes. The oracle
+performs the same rotation further, which is the sense in which it is a ceiling rather than a
+different kind of method.}
+\label{fig:coverage}
+\end{figure*}
 
-Prevalence carries little information in this particular table, because ImageNet's held-out
-classes have between $1147$ and $1182$ training images and are therefore close to balanced.
-The quintiles are included so that the same table can be read for the long-tailed datasets,
-where prevalence does vary over three orders of magnitude.
+The curve rotates rather than shifting. On the held-out classes the lowest-ranked class rises
+from $0.658$ to $0.691$ while the median falls from $0.921$ to $0.909$, and macro-coverage moves
+from $0.904$ to $0.900$. The oracle rotates the same curve further, lifting its worst class to
+$0.792$ and pulling its median to $0.883$; what separates the two is how far the rotation goes,
+not which way. Because the comparison holds average set size fixed, coverage given to the
+classes that were failing has to come from somewhere, and it comes in thin slices from the
+classes that had it to spare. Whether that trade is worth making is a decision about the
+application rather than about the method, which is why we report both the minimum and the
+average throughout.
+
+Two cautions on reading the fractions in \cref{tab:whohelped}. At the $76$ evaluation examples
+per class of this configuration a single example is $0.013$ of coverage, so how many classes
+register as changed at all depends on evaluation depth as much as on the correction; the mean
+change of $-0.004$ is the quantity that survives a change of depth. And the worst class is not
+the same class before and after, class $754$ before the correction and class $663$ after, so the
+two ends of that arrow are not one class being repaired.
+
+Prevalence carries little information here, because ImageNet's held-out classes hold between
+$693$ and $1199$ rows in the score dump and are therefore close to balanced. The quintiles are
+included so that the same table can be read for the long-tailed datasets, where prevalence
+varies over three orders of magnitude.
 
 \begin{table}[h]
 \centering
@@ -472,14 +510,14 @@ where prevalence does vary over three orders of magnitude.
 \toprule
 Quintile & Classes & Med.\ prev. & Mean $\Delta\hat c_y$ \\
 \midrule
-1, frequent & $60$ & $1147$ & $-0.0005$ \\
-2           & $60$ & $1163$ & $-0.0033$ \\
-3           & $60$ & $1169$ & $-0.0033$ \\
-4           & $60$ & $1174$ & $+0.0007$ \\
-5, rare     & $60$ & $1182$ & $-0.0020$ \\
+1, frequent & $60$ & $1182$ & $-0.0078$ \\
+2 & $60$ & $1174$ & $-0.0033$ \\
+3 & $60$ & $1169$ & $-0.0033$ \\
+4 & $60$ & $1163$ & $-0.0039$ \\
+5, rare & $60$ & $1147$ & $-0.0024$ \\
 \midrule
-\multicolumn{4}{@{}l@{}}{Improved $12.3\%$, worsened $26.7\%$} \\
-\multicolumn{4}{@{}l@{}}{Worst class $0.569 \rightarrow 0.647$, same class} \\
+\multicolumn{4}{@{}l@{}}{Improved $11.3\%$, worsened $43.3\%$} \\
+\multicolumn{4}{@{}l@{}}{Worst class $0.658 \rightarrow 0.691$} \\
 \bottomrule
 \end{tabular}
 \caption{Change in per-class coverage on the $300$ held-out ImageNet classes, by prevalence
